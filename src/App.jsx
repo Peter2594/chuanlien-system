@@ -38,18 +38,217 @@ import {
 } from "./firebase.js";
 
 // ===== 初始範例資料 =====
+// ===== 初始範例資料 =====
+// 第 42 週(本週)三部門詳細週報 + 過去 7 週(35-41)各部門歷史週報
+// 過去週報採用較簡潔但連貫的內容,展現公司持續運作的真實感
+const SEED_REPORTS_HISTORICAL = (() => {
+  const data = [];
+  const weeks = [
+    { wk: 35, label: "第 35 週", dateRange: "8/26 – 9/1" },
+    { wk: 36, label: "第 36 週", dateRange: "9/2 – 9/8" },
+    { wk: 37, label: "第 37 週", dateRange: "9/9 – 9/15" },
+    { wk: 38, label: "第 38 週", dateRange: "9/16 – 9/22" },
+    { wk: 39, label: "第 39 週", dateRange: "9/23 – 9/29" },
+    { wk: 40, label: "第 40 週", dateRange: "9/30 – 10/6" },
+    { wk: 41, label: "第 41 週", dateRange: "10/7 – 10/13" },
+  ];
+
+  // 投研部 7 週的故事線(逐步推進 A 新創、B 公司案件)
+  const researchStory = [
+    {
+      cases: "• B 公司產業分析啟動(訪談 3 家競品)\n• Q3 投資組合估值\n• L 標的退件回覆",
+      blockers: "L 標的法律意見書遲未回覆",
+      needHelp: "請業開部聯繫 L 標的法務窗口",
+      nextWeek: "完成 B 公司產業分析架構",
+      keywords: ["B 公司", "Q3", "L 標的", "競品分析"],
+    },
+    {
+      cases: "• B 公司產業分析(競品比較表完成)\n• A 新創第一次接觸(初步資料審閱)\n• Q3 估值報告產出",
+      blockers: "Q3 估值有 2 家被投公司報表延遲提供",
+      needHelp: "需資管部協助與 P 公司、R 公司財務窗口溝通",
+      nextWeek: "B 公司產業分析交付、A 新創創辦人面談排程",
+      keywords: ["B 公司", "A 新創", "Q3", "估值"],
+    },
+    {
+      cases: "• A 新創創辦人面談(2.5 小時)\n• B 公司產業分析交付業開部\n• 法遵審核新流程試行",
+      blockers: "A 新創財務資料只提供簡化版,需要正式版",
+      needHelp: "需業開部協助請 A 新創補件",
+      nextWeek: "A 新創財務模型 v1、補件追蹤",
+      keywords: ["A 新創", "B 公司", "盡調", "法遵"],
+    },
+    {
+      cases: "• A 新創財務模型 v1 完成(估值區間 3.5-5 億)\n• C 標的二次訪談\n• Q4 投資策略檢討",
+      blockers: "A 新創財務正式版仍未送達(已過兩週),Q4 策略待管理層拍板",
+      needHelp: "需業開部再次催促 A 新創,需管理層確認 Q4 策略方向",
+      nextWeek: "A 新創估值區間決議、Q4 案件篩選",
+      keywords: ["A 新創", "C 標的", "Q4", "估值", "募資"],
+    },
+    {
+      cases: "• C 標的訪談紀錄整理\n• A 新創估值區間二次評估\n• F 教育科技標的初篩",
+      blockers: "A 新創財務資料仍未收齊,已影響估值精度",
+      needHelp: "請業開部加強跟進 A 新創財務長",
+      nextWeek: "F 標的初篩決議、C 標的二次評估會議",
+      keywords: ["A 新創", "C 標的", "F 標的", "教育科技", "估值"],
+    },
+    {
+      cases: "• A 新創盡調進入正式階段\n• F 標的初步評估報告\n• B 公司案件結案(轉給業開部跟進客戶接觸)",
+      blockers: "A 新創財務資料部分缺漏,影響盡調進度",
+      needHelp: "業開部需協助多次聯繫 A 新創",
+      nextWeek: "A 新創盡調 50%、F 標的決議是否進入正式",
+      keywords: ["A 新創", "F 標的", "B 公司", "盡調"],
+    },
+    {
+      cases: "• A 新創盡調(60% 完成)\n• B 公司產業分析報告\n• C 標的二次訪談紀錄整理",
+      blockers: "A 新創財務資料尚未收齊,已 14 天",
+      needHelp: "請業開部協助聯繫 A 新創財務長",
+      nextWeek: "完成 B 公司產業分析初稿、A 新創盡調 80%",
+      keywords: ["A 新創", "B 公司", "C 標的", "盡調"],
+    },
+  ];
+
+  const bizStory = [
+    {
+      cases: "• Q3 客戶滿意度回訪\n• L 標的最後接觸\n• 8 月新進員工到職",
+      blockers: "L 標的董事會傾向不接受我方條件",
+      needHelp: "需資管部試算最後一輪修正條件",
+      nextWeek: "L 標的最終回覆、Q4 客戶名單建立",
+      keywords: ["Q3", "L 標的", "新人"],
+    },
+    {
+      cases: "• Q4 新客戶開發啟動(目標 10 家)\n• A 新創初次接觸\n• L 標的結案",
+      blockers: "Q4 客戶名單仍在篩選中",
+      needHelp: "需研究部提供 Q4 重點產業優先級",
+      nextWeek: "客戶名單收斂至 5 家、A 新創二次會議",
+      keywords: ["Q4", "A 新創", "L 標的", "新客戶"],
+    },
+    {
+      cases: "• A 新創二次會議\n• Q4 新客戶開發(已接觸 5 家)\n• D 客戶初次接洽",
+      blockers: "A 新創財務長行程難敲",
+      needHelp: "需協助安排 A 新創財務長會議",
+      nextWeek: "D 客戶 NDA 草擬、A 新創財務窗口建立",
+      keywords: ["A 新創", "Q4", "D 客戶", "NDA"],
+    },
+    {
+      cases: "• D 客戶 NDA 草擬\n• Q4 募資前期溝通\n• G 公司初次接觸",
+      blockers: "D 客戶法務對 NDA 有 3 點異議",
+      needHelp: "需資管部審閱 NDA 修訂建議",
+      nextWeek: "D 客戶 NDA 修訂版、G 公司產業簡報",
+      keywords: ["D 客戶", "NDA", "Q4", "募資", "G 公司"],
+    },
+    {
+      cases: "• Q4 新客戶開發(7 家進入)\n• A 新創投資條件書草擬\n• G 公司產業簡報",
+      blockers: "A 新創財務長依然難敲時程",
+      needHelp: "需投研部加速 G 公司產業評估",
+      nextWeek: "G 公司董事會簡報、A 新創條件書 v1",
+      keywords: ["A 新創", "Q4", "G 公司", "募資"],
+    },
+    {
+      cases: "• A 新創條件書 v1 完成\n• 11 月 FinTech Summit 規劃\n• Q4 客戶開發(進度 70%)",
+      blockers: "Q4 募資節奏(1.5 億 vs 2 億)管理層尚未拍板",
+      needHelp: "需管理層拍板募資規模",
+      nextWeek: "FinTech Summit 議程、A 新創條件書定稿",
+      keywords: ["A 新創", "Q4", "募資", "FinTech"],
+    },
+    {
+      cases: "• A 新創投資條件書草擬\n• Q4 新客戶開發(已接觸 7 家)\n• D 客戶 NDA 簽訂\n• G 公司初次接觸會議",
+      blockers: "A 新創財務長行程難安排",
+      needHelp: "需管理層確認 Q4 募資節奏",
+      nextWeek: "推進 A 新創簽約流程",
+      keywords: ["A 新創", "Q4", "募資", "NDA", "G 公司"],
+    },
+  ];
+
+  const assetStory = [
+    {
+      cases: "• Q3 投組季報製作\n• 法遵新版規範研讀\n• 8 家被投公司財務檢視",
+      blockers: "法遵 9 月新規對部分被投公司影響需評估",
+      needHelp: "需研究部協助評估法規影響",
+      nextWeek: "Q3 投組報告、法規影響清單",
+      keywords: ["Q3", "投組", "法遵", "被投"],
+    },
+    {
+      cases: "• Q3 投組報告完成\n• Q4 募資方案初步試算\n• 法遵新規影響評估",
+      blockers: "P 公司、R 公司報表延遲影響估值精度",
+      needHelp: "需研究部協助與被投公司財務窗口溝通",
+      nextWeek: "Q4 募資配置方案、P/R 公司報表催收",
+      keywords: ["Q3", "Q4", "募資", "法遵"],
+    },
+    {
+      cases: "• Q4 募資方案 v1\n• K 公司退場評估啟動\n• 法遵流程文件化",
+      blockers: "K 公司退場估值未取得共識",
+      needHelp: "需研究部協助 K 公司退場估值",
+      nextWeek: "K 公司退場估值方案、Q4 募資 v2",
+      keywords: ["Q4", "K 公司", "退場", "法遵", "募資"],
+    },
+    {
+      cases: "• K 公司退場估值方案\n• 法遵流程稽核\n• Q4 募資資金配置",
+      blockers: "K 公司退場稅務優化方案需法律意見",
+      needHelp: "需業開部協助引介稅務顧問",
+      nextWeek: "K 公司稅務方案、法遵審核完成",
+      keywords: ["K 公司", "退場", "稅務", "法遵", "Q4"],
+    },
+    {
+      cases: "• 法遵審核中(K 公司案)\n• Q4 募資配置(資金來源確認)\n• D 客戶背景初查",
+      blockers: "法遵審核等待管理層決議已 3 天",
+      needHelp: "需管理層儘速做 K 公司稅務方案決議",
+      nextWeek: "完成 K 公司退場決議、D 客戶 NDA 條款",
+      keywords: ["K 公司", "法遵", "Q4", "募資", "D 客戶"],
+    },
+    {
+      cases: "• D 客戶 NDA 條款審閱\n• K 公司退場最終評估\n• 11 月投組季報啟動",
+      blockers: "法遵審核等待管理層決議已 5 天",
+      needHelp: "需研究部提供 A 新創完整風險評估",
+      nextWeek: "K 公司退場決議、Q4 投組報告框架",
+      keywords: ["K 公司", "法遵", "D 客戶", "NDA", "投組"],
+    },
+    {
+      cases: "• 既有投資組合季度回顧(8 家被投公司報表彙整)\n• Q4 募資方案評估\n• 法遵審核排程\n• D 客戶 NDA 條款審閱\n• K 公司退場機會評估",
+      blockers: "法遵審核等待管理層決議已 5 天,Q4 募資計畫尚未取得董事會明確指示",
+      needHelp: "需研究部提供 A 新創風險評估完整版",
+      nextWeek: "完成 Q4 募資資金配置試算、K 公司退場評估報告",
+      keywords: ["Q4", "募資", "法遵", "A 新創", "K 公司", "退場", "稅務", "D 客戶"],
+    },
+  ];
+
+  weeks.forEach((w, idx) => {
+    const submitDate = new Date(2025, 7, 26 + idx * 7).toISOString().slice(0, 10);
+    [
+      { dept: "投資研究部", author: "周世倫", story: researchStory[idx] },
+      { dept: "業務開發部", author: "林聿平", story: bizStory[idx] },
+      { dept: "資產管理部", author: "梁嘉芫", story: assetStory[idx] },
+    ].forEach((d, j) => {
+      data.push({
+        id: `r-w${w.wk}-${j + 1}`,
+        dept: d.dept,
+        week: w.label,
+        author: d.author,
+        submittedAt: `${submitDate} 17:${(j + 1) * 12}`,
+        cases: d.story.cases,
+        blockers: d.story.blockers,
+        needHelp: d.story.needHelp,
+        nextWeek: d.story.nextWeek,
+        keywords: d.story.keywords,
+      });
+    });
+  });
+
+  return data;
+})();
+
 const SEED_REPORTS = [
+  ...SEED_REPORTS_HISTORICAL,
+  // 第 42 週(本週) - 詳細版
   {
     id: "r1",
     dept: "投資研究部",
     week: "第 42 週",
     author: "周世倫",
     submittedAt: "2025-10-17 16:32",
-    cases: "• A 新創 Pre-A 輪盡職調查\n• B 公司產業分析報告\n• C 標的二次訪談紀錄",
-    blockers: "A 新創財務資料尚未收齊,已兩週",
-    needHelp: "請業開部協助聯繫 A 新創財務長",
-    nextWeek: "完成 B 公司產業分析初稿",
-    keywords: ["A 新創", "FinTech", "Pre-A", "盡調"],
+    cases: "• A 新創 Pre-A 輪盡職調查(主辦)\n• B 公司產業分析報告(2/3 完成)\n• C 標的二次訪談紀錄整理\n• F 教育科技標的初篩\n• 既有投資組合季度估值更新",
+    blockers: "A 新創財務資料尚未收齊,已兩週。創辦人提供之 2024 年度財報為簡化版,需正式版才能進行估值。已透過業開部聯繫兩次未果。",
+    needHelp: "請業開部協助聯繫 A 新創財務長,確認財報補件時程。需資管部協助評估 A 新創若引入新股東後的反稀釋條款風險。",
+    nextWeek: "完成 B 公司產業分析初稿、A 新創財務模型 v2、F 標的決議下週是否進入正式評估",
+    keywords: ["A 新創", "FinTech", "Pre-A", "盡調", "B 公司", "F 標的", "反稀釋"],
   },
   {
     id: "r2",
@@ -57,11 +256,11 @@ const SEED_REPORTS = [
     week: "第 42 週",
     author: "林聿平",
     submittedAt: "2025-10-17 17:05",
-    cases: "• A 新創投資條件書草擬\n• Q4 新客戶開發\n• D 客戶 NDA 簽訂",
-    blockers: "A 新創財務長行程難安排",
-    needHelp: "需管理層確認 Q4 募資節奏",
-    nextWeek: "推進 A 新創簽約流程",
-    keywords: ["A 新創", "Q4", "募資", "NDA"],
+    cases: "• A 新創投資條件書草擬\n• Q4 新客戶開發(已接觸 7 家)\n• D 客戶 NDA 簽訂\n• G 公司初次接觸會議\n• 業界活動參訪規劃(11 月 FinTech Summit)",
+    blockers: "A 新創財務長行程難安排,本週已電話聯繫 4 次未通。D 客戶法務對 NDA 條款有 3 點異議,已轉給資管部審閱中。",
+    needHelp: "需管理層確認 Q4 募資節奏(目標 1.5 億 vs 2 億兩種規模差異)。需投研部加速 G 公司產業初評。",
+    nextWeek: "推進 A 新創簽約流程、完成 D 客戶 NDA 修訂版、與 G 公司董事會做 30 分鐘簡報",
+    keywords: ["A 新創", "Q4", "募資", "NDA", "D 客戶", "G 公司", "FinTech"],
   },
   {
     id: "r3",
@@ -69,11 +268,11 @@ const SEED_REPORTS = [
     week: "第 42 週",
     author: "梁嘉芫",
     submittedAt: "2025-10-17 17:48",
-    cases: "• 既有投資組合季度回顧\n• Q4 募資方案評估\n• 法遵審核排程",
-    blockers: "法遵審核等待管理層決議已 5 天",
-    needHelp: "需研究部提供 A 新創風險評估",
-    nextWeek: "完成 Q4 募資資金配置",
-    keywords: ["Q4", "募資", "法遵", "A 新創"],
+    cases: "• 既有投資組合季度回顧(8 家被投公司報表彙整)\n• Q4 募資方案評估\n• 法遵審核排程\n• D 客戶 NDA 條款審閱\n• K 公司退場機會評估",
+    blockers: "法遵審核等待管理層決議已 5 天,涉及 K 公司退場時的稅務優化方案。Q4 募資計畫尚未取得董事會明確指示,影響後續資金配置安排。",
+    needHelp: "需研究部提供 A 新創風險評估完整版以納入投組曝險試算。需業開部確認 D 客戶簽約時程,法務需提前 1 週準備合約。",
+    nextWeek: "完成 Q4 募資資金配置試算、K 公司退場評估報告、法遵審核完成 NDA 條款建議",
+    keywords: ["Q4", "募資", "法遵", "A 新創", "K 公司", "退場", "稅務", "D 客戶"],
   },
 ];
 
@@ -87,7 +286,7 @@ const SEED_HANDOFFS = [
     background: "A 新創為 FinTech 領域 Pre-A 輪標的,已完成初步接觸。客戶端希望於 11 月中完成投資條件書。需研究部進行產業競品分析。",
     progress: "已取得 A 新創簡報、創辦人訪談逐字稿、初步財報。",
     todo: "完成 FinTech 三大競品比較表、估值區間建議、風險評估。",
-    attachments: ["A新創簡報.pdf", "訪談逐字稿", "財報摘要.xlsx"],
+    attachments: ["A新創簡報.pdf", "訪談逐字稿.docx", "財報摘要.xlsx"],
     status: "已簽收",
     sender: "林聿平",
     receiver: "鍾皓明",
@@ -124,6 +323,144 @@ const SEED_HANDOFFS = [
     receiver: "林欣逸",
     createdAt: "2025-10-15",
     hoursOverdue: 56,
+  },
+  {
+    id: "h4",
+    from: "資管部",
+    to: "投研部",
+    caseId: "C-2025-039",
+    title: "K 公司退場稅務評估委託",
+    background: "K 公司為 2024 年 Q2 投資標的,目前估值已成長 2.3 倍,評估退場時機。需研究部從產業角度判斷下一波成長空間。",
+    progress: "已彙整 K 公司近 4 季財報,稅務試算已完成基礎模型。",
+    todo: "提供 K 公司未來 12 個月產業展望與競品動態,評估持有 vs 退場效益。",
+    attachments: ["K公司財報彙整.xlsx", "稅務試算_v1.xlsx"],
+    status: "已簽收",
+    sender: "梁嘉芫",
+    receiver: "周世倫",
+    createdAt: "2025-10-12",
+  },
+  {
+    id: "h5",
+    from: "業開部",
+    to: "投研部",
+    caseId: "C-2025-053",
+    title: "G 公司初次評估",
+    background: "G 公司為 SaaS 類 Series A 標的,本週透過業界活動接觸。創辦人為前 Google 工程師團隊,有具體 PMF 證據。",
+    progress: "已收到 pitch deck 與 demo 影片,完成初步背景調查。",
+    todo: "進行產業面與技術面初評,給出是否進入正式盡調的建議(預計 2 週內)。",
+    attachments: ["G公司pitch_deck.pdf", "demo影片連結.txt"],
+    status: "待簽收",
+    sender: "林聿平",
+    receiver: "周世倫",
+    createdAt: "2025-10-16",
+    hoursOverdue: 24,
+  },
+  {
+    id: "h6",
+    from: "投研部",
+    to: "資管部",
+    caseId: "C-2025-040",
+    title: "M 平台估值方法論共享",
+    background: "資管部於 K 公司退場評估中需參考類似 SaaS 標的的估值方法。M 平台為今年初評估過的相似標的。",
+    progress: "M 平台估值報告已完成,含 ARR 倍數、客戶留存率分析。",
+    todo: "資管部審閱方法論並適用於 K 公司情境。",
+    attachments: ["M平台估值報告.pdf", "ARR倍數參考.xlsx"],
+    status: "已簽收",
+    sender: "鍾皓明",
+    receiver: "梁嘉芫",
+    createdAt: "2025-10-08",
+  },
+  {
+    id: "h7",
+    from: "資管部",
+    to: "業開部",
+    caseId: "C-2025-052",
+    title: "Q4 募資簡報內容協助",
+    background: "Q4 募資對外簡報需業開部提供市場開發數據與客戶 traction。",
+    progress: "已完成簡報初稿前 8 頁(投資組合與成效)。",
+    todo: "補充本季新客戶開發數據與案件 pipeline,預計 1 週內完成。",
+    attachments: ["Q4募資簡報_v0.3.pptx"],
+    status: "待簽收",
+    sender: "梁嘉芫",
+    receiver: "林聿平",
+    createdAt: "2025-10-16",
+    hoursOverdue: 32,
+  },
+  {
+    id: "h8",
+    from: "業開部",
+    to: "投研部",
+    caseId: "C-2025-035",
+    title: "B 公司競品比較追加分析",
+    background: "B 公司產業分析中,業開部從客戶處取得新的競品資訊,需研究部納入比較表。",
+    progress: "新競品名單已整理,共 3 家未收錄於原報告。",
+    todo: "完成 3 家新競品的營運模式與財務指標比較。",
+    attachments: ["新競品名單.xlsx"],
+    status: "已簽收",
+    sender: "林欣逸",
+    receiver: "鍾皓明",
+    createdAt: "2025-10-09",
+  },
+  {
+    id: "h9",
+    from: "投研部",
+    to: "資管部",
+    caseId: "C-2025-031",
+    title: "P 公司 A 輪追加投資風險評估",
+    background: "既有投資 P 公司(保險科技)進入 A 輪,需評估是否追加。",
+    progress: "已完成 P 公司營運成長分析,需資管部從投組曝險角度評估。",
+    todo: "在現有投組架構下,評估追加 P 公司 A 輪的風險集中度與資金配置影響。",
+    attachments: ["P公司營運成長分析.pdf"],
+    status: "已簽收",
+    sender: "周世倫",
+    receiver: "陳雅文",
+    createdAt: "2025-10-05",
+  },
+  {
+    id: "h10",
+    from: "投研部",
+    to: "業開部",
+    caseId: "C-2025-046",
+    title: "C 標的決議不投資通知",
+    background: "C 標的經兩輪盡調後,投資委員會於 10/14 決議不投資。需通知業開部維持後續關係。",
+    progress: "投委會會議紀錄已完成,內含不投決議原因。",
+    todo: "業開部回覆 C 標的並維持業界關係,評估未來 6-12 月再追蹤可能。",
+    attachments: ["投委會會議紀錄_C標的.pdf"],
+    status: "已簽收",
+    sender: "鍾皓明",
+    receiver: "林聿平",
+    createdAt: "2025-10-14",
+  },
+  {
+    id: "h11",
+    from: "資管部",
+    to: "業開部",
+    caseId: "C-2025-049",
+    title: "10 月既有客戶關係維護資料",
+    background: "Q4 例行性投資組合公司關係維護,需業開部協助安排見面或簡訊問候。",
+    progress: "8 家被投公司近期動態已彙整。",
+    todo: "依資管部建議優先順序,本月完成至少 5 家拜訪或視訊。",
+    attachments: ["10月關係維護清單.xlsx"],
+    status: "已簽收",
+    sender: "陳雅文",
+    receiver: "林聿平",
+    createdAt: "2025-10-07",
+  },
+  {
+    id: "h12",
+    from: "業開部",
+    to: "資管部",
+    caseId: "C-2025-054",
+    title: "H 客戶基金結構諮詢請求",
+    background: "H 客戶為新接觸的家族辦公室,有意參與 Q4 募資但對基金結構有疑問。",
+    progress: "首次會議已完成,客戶提出 5 個結構性問題待回覆。",
+    todo: "資管部於 1 週內彙整書面回覆,業開部安排第二次會議。",
+    attachments: ["H客戶問題清單.docx"],
+    status: "待簽收",
+    sender: "林聿平",
+    receiver: "梁嘉芫",
+    createdAt: "2025-10-17",
+    hoursOverdue: 8,
   },
 ];
 
@@ -216,6 +553,160 @@ const SEED_HISTORY = [
       lessons: "建立本公司對 Web3 類標的的評估標準,主要關注法遵環境與創辦人產業經驗。",
     },
   },
+  {
+    id: "k5",
+    title: "L 健康科技 Pre-A 輪",
+    date: "2024-Q3",
+    tags: ["健康科技", "Pre-A", "醫療", "SaaS"],
+    summary: "醫療 SaaS 標的,主打診所管理系統,已有 200+ 家診所付費使用。",
+    owner: "鍾皓明",
+    handoffs: 2,
+    outcome: "投資 · 報酬率 1.6x",
+    detail: {
+      background: "L 公司為 2024 年 7 月經業界活動接觸的醫療 SaaS 標的。創辦團隊有醫療管理背景,產品已商業化 18 個月。",
+      process: "完成 8 週盡調,涵蓋醫療法規合規性、客戶留存率分析、競品比較。資管部協助評估醫療科技類風險集中度。",
+      valuation: "估值 4.5 億,以 ARR 8x 倍數定錨,投資金額 1,800 萬,持股 4%。",
+      keyInsights: [
+        "客戶 NPS 達 68 分,顯示產品契合醫療場景",
+        "主要競品已完成 B 輪,L 公司估值具吸引力",
+        "創辦人為前 IBM Watson Health 成員",
+      ],
+      result: "至 2025 Q3 估值成長 1.6 倍,客戶數已破 350 家。",
+      lessons: "醫療科技類盡調需特別重視法規合規面,建議未來案件提前讓法務介入。",
+    },
+  },
+  {
+    id: "k6",
+    title: "N 物流自動化 A 輪",
+    date: "2024-Q1",
+    tags: ["物流", "A 輪", "自動化", "B2B"],
+    summary: "倉儲機器人解決方案,已部署於兩家大型電商客戶。",
+    owner: "周世倫",
+    handoffs: 3,
+    outcome: "投資 · 報酬率 1.4x",
+    detail: {
+      background: "N 公司為自動化倉儲機器人提供商,2024 年 2 月由業界推介接觸。已與兩家上市電商簽訂試營運合約。",
+      process: "盡調歷時 10 週,含實地參訪兩家客戶倉儲、技術架構審查、財務模型驗證。",
+      valuation: "估值 6.2 億,以 EV/EBITDA 12x 定錨。",
+      keyInsights: [
+        "硬體+軟體整合服務,客戶切換成本高",
+        "毛利率 42%,符合製造業優於平均水準",
+        "團隊背景以工程出身,商業開發資源較弱",
+      ],
+      result: "投資後 18 個月新增 5 家客戶,但商業化速度低於預期。",
+      lessons: "硬體類新創需更謹慎評估商業化能力,建議要求創辦人補強商業團隊作為投資條件。",
+    },
+  },
+  {
+    id: "k7",
+    title: "Q 公司 Series B 評估",
+    date: "2025-Q1",
+    tags: ["FinTech", "B 輪", "支付", "估值偏高"],
+    summary: "成熟 FinTech 標的,Series B,估值要求 30 億但我方評估僅 18-22 億。",
+    owner: "梁嘉芫",
+    handoffs: 2,
+    outcome: "未投資",
+    detail: {
+      background: "Q 公司為跨境支付平台,2024 年底由前同業介紹接觸 Series B 機會。創辦團隊背景優異,但估值期待過高。",
+      process: "完成基本盡調後,因估值差距過大未進入深度盡調。雙方協議保持聯絡。",
+      valuation: "Q 公司估值期待 30 億 (ARR 25x),我方合理區間 18-22 億 (ARR 15-18x)。",
+      keyInsights: [
+        "公司業務本身強勁但市場已有多家競爭者",
+        "ARR 倍數應隨市場成熟度下調",
+        "創辦人強烈主張高估值難協調",
+      ],
+      result: "未投資。Q 公司後由國際 VC 以 28 億完成 Series B。",
+      lessons: "估值差距 > 30% 時建議盡早終止,避免雙方投入過多時間。",
+    },
+  },
+  {
+    id: "k8",
+    title: "R 教育平台 Seed 輪",
+    date: "2024-Q3",
+    tags: ["教育", "Seed", "B2C", "新創早期"],
+    summary: "K12 線上家教平台,Seed 輪,團隊年輕但成長動能強。",
+    owner: "林欣逸",
+    handoffs: 2,
+    outcome: "投資 · 仍持有",
+    detail: {
+      background: "R 平台為 2024 年 8 月由創辦人主動接觸我司。創辦人為 25 歲連續創業者,展現強烈執行力。",
+      process: "Seed 階段以團隊評估為主,並透過用戶訪談驗證 PMF。",
+      valuation: "Seed 估值 1.2 億,投資 800 萬,持股 6.7%。",
+      keyInsights: [
+        "創辦人為這個領域的重複玩家(第二次教育創業)",
+        "獲客成本較同業低 30%",
+        "產品技術門檻不高,商業模式仍待驗證",
+      ],
+      result: "目前處於 Pre-A 輪準備階段,我們考慮追加投資。",
+      lessons: "早期投資看人為主,團隊背景與執行力是關鍵指標。",
+    },
+  },
+  {
+    id: "k9",
+    title: "T 餐飲 SaaS 投資評估",
+    date: "2023-Q4",
+    tags: ["餐飲", "SaaS", "A 輪", "競爭激烈"],
+    summary: "餐飲業 POS 系統,A 輪標的,但市場競爭過於激烈。",
+    owner: "廖宜萱",
+    handoffs: 2,
+    outcome: "未投資",
+    detail: {
+      background: "T 公司為餐飲業 POS + 會員系統解決方案,2023 年 11 月接觸。",
+      process: "盡調發現市場有 5+ 家成熟競爭者,且毛利率已被壓縮至 35% 以下。",
+      valuation: "T 公司估值 8 億,我方合理區間 5-6 億。",
+      keyInsights: [
+        "市場已紅海化,差異化空間有限",
+        "毛利率壓力預期持續",
+        "創辦人對於市場競爭的應對策略不夠清晰",
+      ],
+      result: "未投資。T 公司於 2024 年中縮減營運規模。",
+      lessons: "市場已成熟且毛利率持續下滑的產業需特別謹慎,建議優先尋找具差異化的早期標的。",
+    },
+  },
+  {
+    id: "k10",
+    title: "U 電子商務 A 輪",
+    date: "2023-Q4",
+    tags: ["電商", "A 輪", "DTC", "亞太擴張"],
+    summary: "DTC 美妝品牌,A 輪,從台灣擴張至東南亞。",
+    owner: "陳雅文",
+    handoffs: 3,
+    outcome: "投資 · 報酬率 1.8x",
+    detail: {
+      background: "U 公司為 DTC 美妝品牌,在台灣已穩定營運 3 年,進入東南亞擴張階段。",
+      process: "完成完整盡調,包含財務、客戶分析、東南亞市場機會評估。",
+      valuation: "估值 12 億,以 P/S 4x 定錨,投資 2,500 萬,持股 2%。",
+      keyInsights: [
+        "已完成台灣市場驗證,可重複性高",
+        "創辦人在東南亞已有當地合作夥伴",
+        "現金流為正,降低投資後資金壓力",
+      ],
+      result: "投資後 18 個月,東南亞營收已超過原台灣營收。",
+      lessons: "可複製性是擴張型投資的關鍵指標,有現成驗證的商業模式風險較低。",
+    },
+  },
+  {
+    id: "k11",
+    title: "V 物聯網解決方案 Pre-A",
+    date: "2024-Q2",
+    tags: ["IoT", "Pre-A", "B2B", "技術導向"],
+    summary: "工業 IoT 監控解決方案,Pre-A,客戶集中於製造業。",
+    owner: "李宥廷",
+    handoffs: 2,
+    outcome: "觀望",
+    detail: {
+      background: "V 公司為工業 IoT 解決方案商,2024 年 5 月接觸。客戶集中於製造業前 5 大廠。",
+      process: "完成基礎盡調,但發現客戶過度集中(前 3 大客戶佔營收 80%)。",
+      valuation: "V 公司估值 5 億,因風險集中我方提出折讓 20% 建議,雙方未達共識。",
+      keyInsights: [
+        "技術領先,但客戶集中度為主要風險",
+        "B2B 銷售週期長(平均 9 個月)",
+        "需更多客戶分散證據",
+      ],
+      result: "目前觀望中,等待 V 公司客戶結構分散後再評估。",
+      lessons: "B2B 標的若客戶過度集中,需要時間驗證業務分散性,建議先簽優先投資權再評估。",
+    },
+  },
 ];
 
 // ============================================================
@@ -234,11 +725,11 @@ const BLOCKER_CATEGORIES = [
 
 // 類別對應的實際統計參數(用於生成合理範例資料的母體)
 const CATEGORY_STATS_PARAMS = {
-  法遵: { mean: 8.5, std: 3.2, n: 14 },
-  資金: { mean: 5.8, std: 2.4, n: 10 },
-  資料: { mean: 6.2, std: 3.8, n: 15 },
-  跨部門: { mean: 4.5, std: 2.1, n: 12 },
-  決策: { mean: 7.8, std: 4.5, n: 9 },
+  法遵: { mean: 8.5, std: 3.2, n: 28 },
+  資金: { mean: 5.8, std: 2.4, n: 20 },
+  資料: { mean: 6.2, std: 3.8, n: 30 },
+  跨部門: { mean: 4.5, std: 2.1, n: 24 },
+  決策: { mean: 7.8, std: 4.5, n: 18 },
 };
 
 // 以 seed 產生可重現的隨機常態分佈
@@ -357,13 +848,181 @@ const SEED_DECISIONS = [
     notes: "研究部已暫停 2 筆 Web3 案件評估。",
     completedAt: "2025-10-03",
   },
+  {
+    id: "d6",
+    title: "P 公司 A 輪追加投資 800 萬",
+    content: "決議追加投資既有持股之保險科技 P 公司 A 輪 800 萬,維持原 6% 持股不被稀釋。",
+    decidedBy: "投資委員會",
+    decidedAt: "2025-10-10",
+    dueDate: "2025-10-31",
+    assignedDept: "投資研究部",
+    status: "執行中",
+    linkedCases: ["C-2025-031"],
+    notes: "已完成投資條件書,等 P 公司領投方完成簽約後即可執行。",
+  },
+  {
+    id: "d7",
+    title: "K 公司退場時程確認",
+    content: "決議於 2026 年 Q1 啟動 K 公司部分退場程序,目標出脫 30-50% 持股,實現報酬。",
+    decidedBy: "投資委員會",
+    decidedAt: "2025-10-08",
+    dueDate: "2026-03-31",
+    assignedDept: "資產管理部",
+    status: "執行中",
+    linkedCases: ["C-2025-039"],
+    notes: "需業開部同步接觸潛在二級市場買家。",
+  },
+  {
+    id: "d8",
+    title: "C 標的不投資決議",
+    content: "經兩輪盡調後,因產品 PMF 證據不足且估值偏高,決議不投資 C 標的。",
+    decidedBy: "投資委員會",
+    decidedAt: "2025-10-14",
+    dueDate: "2025-10-14",
+    assignedDept: "投資研究部",
+    status: "已完成",
+    linkedCases: ["C-2025-046"],
+    notes: "業開部已通知 C 標的並維持業界關係。",
+    completedAt: "2025-10-14",
+  },
+  {
+    id: "d9",
+    title: "建立每週投資委員會例會",
+    content: "由原雙週例會改為每週四 14:00-16:00,以加快案件決策速度。",
+    decidedBy: "董事會",
+    decidedAt: "2025-09-05",
+    dueDate: "2025-09-15",
+    assignedDept: "營運與管理層",
+    status: "已完成",
+    linkedCases: [],
+    notes: "9/19 起已執行,迄今執行良好。",
+    completedAt: "2025-09-15",
+  },
+  {
+    id: "d10",
+    title: "投資組合報告格式統一",
+    content: "決議所有被投公司之季度報告須採新版統一格式,便於跨公司比較與管理層審閱。",
+    decidedBy: "營運會議",
+    decidedAt: "2025-09-22",
+    dueDate: "2025-10-31",
+    assignedDept: "資產管理部",
+    status: "執行中",
+    linkedCases: [],
+    notes: "資管部已完成新版範本,正在請被投公司配合。",
+  },
+  {
+    id: "d11",
+    title: "業界關係維護預算編列",
+    content: "Q4 業界活動參訪、餐敘等社交支出預算上限調整為 80 萬。",
+    decidedBy: "董事會",
+    decidedAt: "2025-09-30",
+    dueDate: "2025-10-15",
+    assignedDept: "業務開發部",
+    status: "已完成",
+    linkedCases: [],
+    notes: "已通知業開部依預算規劃 Q4 活動。",
+    completedAt: "2025-10-12",
+  },
+  {
+    id: "d12",
+    title: "盡調 SOP 標準化",
+    content: "建立投資研究部標準化盡調流程文件,涵蓋初評、深度盡調、結案三階段檢核點。",
+    decidedBy: "營運會議",
+    decidedAt: "2025-08-28",
+    dueDate: "2025-10-10",
+    assignedDept: "投資研究部",
+    status: "逾期",
+    linkedCases: [],
+    notes: "研究部已完成草案 70%,但最後階段卡在跨部門協作章節,待釐清。",
+  },
+  {
+    id: "d13",
+    title: "新進人員 Onboarding 流程",
+    content: "決議建立統一的新進人員報到流程,含 2 週系統訓練與 1 個月 mentor 制。",
+    decidedBy: "營運會議",
+    decidedAt: "2025-09-12",
+    dueDate: "2025-11-30",
+    assignedDept: "營運與管理層",
+    status: "執行中",
+    linkedCases: [],
+    notes: "結合法遵專員招募進度,預計與 12 月新人同步上線。",
+  },
+  {
+    id: "d14",
+    title: "客戶資料庫升級",
+    content: "業開部 CRM 系統升級至 v2,加入自動化提醒與分級管理功能。",
+    decidedBy: "營運會議",
+    decidedAt: "2025-09-15",
+    dueDate: "2025-10-31",
+    assignedDept: "業務開發部",
+    status: "執行中",
+    linkedCases: [],
+    notes: "已完成系統規格,IT 部門開發中。",
+  },
+  {
+    id: "d15",
+    title: "ESG 投資準則納入評估",
+    content: "新案件於投委會評估時須額外提供 ESG 評分(5 級),作為決策參考。",
+    decidedBy: "投資委員會",
+    decidedAt: "2025-08-15",
+    dueDate: "2025-09-30",
+    assignedDept: "投資研究部",
+    status: "已完成",
+    linkedCases: [],
+    notes: "10 月起所有新案皆已納入 ESG 評分。",
+    completedAt: "2025-09-25",
+  },
+  {
+    id: "d16",
+    title: "年度法遵稽核時程",
+    content: "決議年底前完成全年度法遵稽核,涵蓋投資文件、投資組合曝險、員工合規教育。",
+    decidedBy: "董事會",
+    decidedAt: "2025-09-08",
+    dueDate: "2025-12-15",
+    assignedDept: "資產管理部",
+    status: "執行中",
+    linkedCases: [],
+    notes: "外部稽核公司已選定,預計 11 月開始。",
+  },
+  {
+    id: "d17",
+    title: "Q3 業績獎金發放",
+    content: "決議 Q3 業績獎金按業績達成率 105% 發放(原訂 100%)。",
+    decidedBy: "董事會",
+    decidedAt: "2025-10-05",
+    dueDate: "2025-10-25",
+    assignedDept: "營運與管理層",
+    status: "執行中",
+    linkedCases: [],
+    notes: "薪資處理中,預計 10/25 隨薪入帳。",
+  },
+  {
+    id: "d18",
+    title: "投資組合再平衡",
+    content: "Q4 進行投資組合再平衡,FinTech 類比重由 45% 降至 35%,釋出資金供新案件。",
+    decidedBy: "投資委員會",
+    decidedAt: "2025-09-28",
+    dueDate: "2025-12-31",
+    assignedDept: "資產管理部",
+    status: "執行中",
+    linkedCases: [],
+    notes: "已完成方案規劃,等待具體退場時點與市場條件。",
+  },
 ];
 
 // ============================================================
 // 歷史共同議題追蹤(用於慢性議題偵測)
-// 模擬過去 8 週的共同議題紀錄
+// 模擬過去 16 週的共同議題紀錄
 // ============================================================
 const SEED_TOPIC_HISTORY = [
+  { week: 26, topics: ["Q2 結算", "P 公司"] },
+  { week: 27, topics: ["Q2 結算", "P 公司", "K 公司"] },
+  { week: 28, topics: ["P 公司", "K 公司", "ESG"] },
+  { week: 29, topics: ["ESG", "K 公司"] },
+  { week: 30, topics: ["ESG", "盡調流程"] },
+  { week: 31, topics: ["盡調流程", "業界活動"] },
+  { week: 32, topics: ["業界活動", "B 公司"] },
+  { week: 33, topics: ["B 公司", "Q3 結算"] },
   { week: 34, topics: ["B 公司", "Q3 結算"] },
   { week: 35, topics: ["B 公司", "Q3 結算", "法遵"] },
   { week: 36, topics: ["Q3 結算", "法遵"] },
@@ -382,13 +1041,13 @@ const SEED_REPORT_ACTIVITY = (() => {
   const rnd = seededRandom(88);
   const depts = ["投資研究部", "業務開發部", "資產管理部"];
   const data = [];
-  // 過去 8 週(34–41)的活動基礎值
+  // 過去 16 週(26–41)的活動基礎值
   const deptBase = {
     投資研究部: { help: 1.5, blockers: 0.8, cases: 3.5 },
     業務開發部: { help: 2.0, blockers: 0.9, cases: 4.2 },
     資產管理部: { help: 1.2, blockers: 0.6, cases: 3.0 },
   };
-  for (let w = 34; w <= 41; w++) {
+  for (let w = 26; w <= 41; w++) {
     depts.forEach((d) => {
       const b = deptBase[d];
       data.push({
@@ -643,14 +1302,30 @@ function detectChronicTopics(topicHistory, currentTopics, threshold = 3) {
 // 從 reports + handoffs 計算每個人的工作負載
 // ============================================================
 const KNOWN_EMPLOYEES = [
-  { name: "周世倫", dept: "投資研究部", role: "研究員" },
-  { name: "林聿平", dept: "業務開發部", role: "業務經理" },
-  { name: "梁嘉芫", dept: "資產管理部", role: "資管專員" },
+  // 營運與管理層
+  { name: "吳君", dept: "營運與管理層", role: "董事長" },
+  { name: "陳文翰", dept: "營運與管理層", role: "營運總監(COO)" },
+  { name: "黃詩涵", dept: "營運與管理層", role: "財務長(CFO)" },
+  // 投資研究部(7 人)
+  { name: "周世倫", dept: "投資研究部", role: "資深研究員" },
   { name: "鍾皓明", dept: "投資研究部", role: "資深研究員" },
+  { name: "張偉", dept: "投資研究部", role: "研究員" },
+  { name: "李宥廷", dept: "投資研究部", role: "研究員" },
+  { name: "謝佳穎", dept: "投資研究部", role: "研究助理" },
+  { name: "王子翔", dept: "投資研究部", role: "研究助理" },
+  { name: "廖宜萱", dept: "投資研究部", role: "產業分析師" },
+  // 業務開發部(6 人)
+  { name: "林聿平", dept: "業務開發部", role: "業務經理" },
   { name: "林欣逸", dept: "業務開發部", role: "業務專員" },
-  { name: "吳君", dept: "營運與管理層", role: "營運專員" },
+  { name: "蔡明遠", dept: "業務開發部", role: "業務專員" },
+  { name: "楊雅雯", dept: "業務開發部", role: "客戶關係經理" },
+  { name: "羅宇晴", dept: "業務開發部", role: "業務助理" },
+  { name: "陳俊宏", dept: "業務開發部", role: "新業務開發" },
+  // 資產管理部(4 人)
+  { name: "梁嘉芫", dept: "資產管理部", role: "資管專員" },
   { name: "陳雅文", dept: "資產管理部", role: "資管經理" },
-  { name: "張偉", dept: "投資研究部", role: "研究助理" },
+  { name: "蘇柏豪", dept: "資產管理部", role: "投資組合分析師" },
+  { name: "邱筱慧", dept: "資產管理部", role: "風險管理專員" },
 ];
 
 function analyzeEmployeeLoad(reports, handoffs) {
@@ -720,6 +1395,266 @@ function loadLevelInfo(level) {
     idle: { label: "閒置", color: "#9B9890", bg: "#F7F5EF" },
   };
   return map[level] || map.normal;
+}
+
+// ============================================================
+// B1. 部門互動網絡分析
+// 從週報文字中找「我提到別的部門」的次數,建立鄰接矩陣
+// ============================================================
+function analyzeDeptNetwork(reports) {
+  const depts = ["投資研究部", "業務開發部", "資產管理部"];
+  const deptShortMap = {
+    "投研部": "投資研究部",
+    "業開部": "業務開發部",
+    "資管部": "資產管理部",
+    "投資研究部": "投資研究部",
+    "業務開發部": "業務開發部",
+    "資產管理部": "資產管理部",
+  };
+  // 鄰接矩陣 matrix[from][to] = count
+  const matrix = {};
+  depts.forEach((d) => {
+    matrix[d] = {};
+    depts.forEach((d2) => { matrix[d][d2] = 0; });
+  });
+
+  reports.forEach((r) => {
+    const fullText = `${r.cases || ""}\n${r.blockers || ""}\n${r.needHelp || ""}\n${r.nextWeek || ""}`;
+    depts.forEach((targetDept) => {
+      if (targetDept === r.dept) return;
+      // 計算 fullText 中提到目標部門的次數(短稱+全稱)
+      let count = 0;
+      Object.entries(deptShortMap).forEach(([alias, fullName]) => {
+        if (fullName !== targetDept) return;
+        const re = new RegExp(alias, "g");
+        count += (fullText.match(re) || []).length;
+      });
+      matrix[r.dept][targetDept] += count;
+    });
+  });
+
+  // 轉成 edges 列表(供視覺化用)
+  const edges = [];
+  depts.forEach((from) => {
+    depts.forEach((to) => {
+      if (from !== to && matrix[from][to] > 0) {
+        edges.push({ from, to, weight: matrix[from][to] });
+      }
+    });
+  });
+
+  // 計算每個部門的「被請求次數」與「請求他人次數」
+  const stats = {};
+  depts.forEach((d) => {
+    stats[d] = {
+      outgoing: depts.reduce((s, d2) => s + matrix[d][d2], 0),
+      incoming: depts.reduce((s, d2) => s + matrix[d2][d], 0),
+    };
+  });
+
+  return { matrix, edges, stats, depts };
+}
+
+// ============================================================
+// B2. 趨勢預警(時間序列預測)
+// 用線性回歸外推預測下週活動量、卡點數
+// ============================================================
+function predictNextWeek(activityHistory) {
+  const depts = ["投資研究部", "業務開發部", "資產管理部"];
+  const predictions = [];
+
+  depts.forEach((dept) => {
+    const history = activityHistory.filter((h) => h.dept === dept).sort((a, b) => a.week - b.week);
+    if (history.length < 3) return;
+
+    // 對 helpRequests 和 blockers 各做線性回歸
+    ["helpRequests", "blockers", "cases"].forEach((metric) => {
+      const ys = history.map((h) => h[metric]);
+      const xs = history.map((_, i) => i);
+      const n = ys.length;
+
+      const xMean = stats.mean(xs);
+      const yMean = stats.mean(ys);
+      const num = xs.reduce((s, x, i) => s + (x - xMean) * (ys[i] - yMean), 0);
+      const denom = xs.reduce((s, x) => s + (x - xMean) ** 2, 0);
+      const slope = denom === 0 ? 0 : num / denom;
+      const intercept = yMean - slope * xMean;
+
+      // 預測下一個點(x = n)
+      const predicted = Math.max(0, intercept + slope * n);
+      const recentAvg = stats.mean(ys.slice(-3));
+      const overallAvg = stats.mean(ys);
+      const overallStd = stats.std(ys);
+
+      // 計算預測值的 z-score(相對於歷史)
+      const z = overallStd === 0 ? 0 : (predicted - overallAvg) / overallStd;
+
+      // 只挑出有警示意義的預測
+      if (z >= 0.8 || (slope > 0 && recentAvg > overallAvg * 1.3)) {
+        const metricLabel = {
+          helpRequests: "跨部門協助請求",
+          blockers: "卡點數量",
+          cases: "進行中案件",
+        }[metric];
+
+        let direction;
+        if (slope > 0.3) direction = "持續上升";
+        else if (slope < -0.3) direction = "持續下降";
+        else direction = "穩定偏高";
+
+        predictions.push({
+          dept,
+          metric,
+          metricLabel,
+          predicted: predicted.toFixed(1),
+          recentAvg: recentAvg.toFixed(1),
+          overallAvg: overallAvg.toFixed(1),
+          z: z.toFixed(2),
+          slope: slope.toFixed(2),
+          direction,
+          severity: z >= 1.5 ? "high" : "medium",
+          confidence: Math.min(95, 50 + Math.abs(slope) * 20 + (Math.abs(z) * 10)),
+        });
+      }
+    });
+  });
+
+  return predictions.sort((a, b) => parseFloat(b.z) - parseFloat(a.z));
+}
+
+// ============================================================
+// B3. 決策模式分析
+// ============================================================
+function analyzeDecisionPatterns(decisions) {
+  if (decisions.length === 0) return null;
+
+  const completed = decisions.filter((d) => d.status === "已完成" && d.completedAt && d.decidedAt);
+  const completionDays = completed.map((d) => {
+    const days = (new Date(d.completedAt) - new Date(d.decidedAt)) / (1000 * 60 * 60 * 24);
+    return Math.max(0, days);
+  });
+
+  // 按決議單位分析
+  const sourceStats = {};
+  decisions.forEach((d) => {
+    if (!sourceStats[d.decidedBy]) {
+      sourceStats[d.decidedBy] = { total: 0, done: 0, overdue: 0, days: [] };
+    }
+    sourceStats[d.decidedBy].total++;
+    if (d.status === "已完成") sourceStats[d.decidedBy].done++;
+    if (d.status === "逾期") sourceStats[d.decidedBy].overdue++;
+    if (d.completedAt && d.decidedAt) {
+      const days = (new Date(d.completedAt) - new Date(d.decidedAt)) / (1000 * 60 * 60 * 24);
+      sourceStats[d.decidedBy].days.push(Math.max(0, days));
+    }
+  });
+
+  Object.keys(sourceStats).forEach((k) => {
+    const s = sourceStats[k];
+    s.completionRate = Math.round((s.done / s.total) * 100);
+    s.avgDays = s.days.length ? stats.mean(s.days).toFixed(1) : "—";
+  });
+
+  // 按部門分析
+  const deptStats = {};
+  decisions.forEach((d) => {
+    if (!deptStats[d.assignedDept]) {
+      deptStats[d.assignedDept] = { total: 0, done: 0, overdue: 0, days: [] };
+    }
+    deptStats[d.assignedDept].total++;
+    if (d.status === "已完成") deptStats[d.assignedDept].done++;
+    if (d.status === "逾期") deptStats[d.assignedDept].overdue++;
+    if (d.completedAt && d.decidedAt) {
+      const days = (new Date(d.completedAt) - new Date(d.decidedAt)) / (1000 * 60 * 60 * 24);
+      deptStats[d.assignedDept].days.push(Math.max(0, days));
+    }
+  });
+
+  Object.keys(deptStats).forEach((k) => {
+    const s = deptStats[k];
+    s.completionRate = Math.round((s.done / s.total) * 100);
+    s.avgDays = s.days.length ? stats.mean(s.days).toFixed(1) : "—";
+  });
+
+  // 整體統計
+  const totalRate = decisions.length > 0
+    ? Math.round((decisions.filter(d => d.status === "已完成").length / decisions.length) * 100)
+    : 0;
+
+  return {
+    totalDecisions: decisions.length,
+    completionRate: totalRate,
+    avgExecutionDays: completionDays.length ? stats.mean(completionDays).toFixed(1) : "—",
+    medianExecutionDays: completionDays.length ? stats.percentile(completionDays, 50).toFixed(1) : "—",
+    sourceStats,
+    deptStats,
+    fastestExecution: completionDays.length ? Math.min(...completionDays).toFixed(0) : "—",
+    slowestExecution: completionDays.length ? Math.max(...completionDays).toFixed(0) : "—",
+    overdueRate: decisions.length > 0
+      ? Math.round((decisions.filter(d => d.status === "逾期").length / decisions.length) * 100)
+      : 0,
+  };
+}
+
+// ============================================================
+// B4. 員工成長追蹤
+// 從歷史週報追蹤每位員工的「任務複雜度」演進
+// ============================================================
+function analyzeEmployeeGrowth(employee, reports) {
+  // 找出此員工填寫的所有週報(按週次排序)
+  const myReports = reports
+    .filter((r) => r.author === employee.name)
+    .sort((a, b) => {
+      const wa = parseInt((a.week.match(/\d+/) || [0])[0]);
+      const wb = parseInt((b.week.match(/\d+/) || [0])[0]);
+      return wa - wb;
+    });
+
+  if (myReports.length === 0) {
+    return {
+      hasData: false,
+      totalReports: 0,
+    };
+  }
+
+  // 每週的指標
+  const weeklyMetrics = myReports.map((r) => {
+    const fullText = `${r.cases || ""}\n${r.blockers || ""}\n${r.needHelp || ""}\n${r.nextWeek || ""}`;
+    const caseCount = (r.cases || "").split(/[•\n]/).filter((s) => s.trim()).length;
+    const keywordCount = (r.keywords || []).length;
+    const textLength = fullText.length;
+    // 跨部門協作指數:文中提到別的部門次數
+    const crossDeptCount = ((fullText.match(/投研部|業開部|資管部|投資研究部|業務開發部|資產管理部/g) || []).length);
+
+    return {
+      week: r.week,
+      caseCount,
+      keywordCount,
+      textLength,
+      crossDeptCount,
+      // 複雜度綜合分數
+      complexityScore: caseCount * 2 + keywordCount * 1.5 + crossDeptCount * 2,
+    };
+  });
+
+  // 計算趨勢
+  const complexityScores = weeklyMetrics.map((m) => m.complexityScore);
+  const earlyAvg = stats.mean(complexityScores.slice(0, Math.ceil(complexityScores.length / 2)));
+  const lateAvg = stats.mean(complexityScores.slice(Math.ceil(complexityScores.length / 2)));
+  const growthRate = earlyAvg > 0 ? ((lateAvg - earlyAvg) / earlyAvg) * 100 : 0;
+
+  return {
+    hasData: true,
+    totalReports: myReports.length,
+    weeklyMetrics,
+    avgCaseCount: stats.mean(weeklyMetrics.map((m) => m.caseCount)).toFixed(1),
+    avgKeywordDiversity: stats.mean(weeklyMetrics.map((m) => m.keywordCount)).toFixed(1),
+    avgCrossDept: stats.mean(weeklyMetrics.map((m) => m.crossDeptCount)).toFixed(1),
+    earlyComplexity: earlyAvg.toFixed(1),
+    lateComplexity: lateAvg.toFixed(1),
+    growthRate: growthRate.toFixed(0),
+    growthDirection: growthRate > 15 ? "成長" : growthRate < -15 ? "下降" : "穩定",
+  };
 }
 
 // ===== 主要樣式常數 =====
@@ -3708,6 +4643,129 @@ function Decisions({ decisions, setDecisions }) {
         );
       })()}
 
+      {/* B3. 決策模式深度分析 */}
+      {(() => {
+        const patterns = analyzeDecisionPatterns(decisions);
+        if (!patterns) return null;
+        return (
+          <Card style={{ padding: 20, marginBottom: 20 }}>
+            <SectionTitle color={C.purple} hint="協助管理層反思自身決策節奏">
+              決策模式深度分析(B3)
+            </SectionTitle>
+
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(4, 1fr)",
+              gap: 10,
+              marginBottom: 16,
+            }}>
+              {[
+                { label: "平均執行時長", value: patterns.avgExecutionDays + " 天", color: C.text },
+                { label: "中位數執行時長", value: patterns.medianExecutionDays + " 天", color: C.text },
+                { label: "最快完成", value: patterns.fastestExecution + " 天", color: C.success },
+                { label: "最慢完成", value: patterns.slowestExecution + " 天", color: C.danger },
+              ].map((s) => (
+                <div key={s.label} style={{
+                  background: C.bg,
+                  padding: "12px 14px",
+                  borderRadius: 8,
+                  border: "1px solid " + C.borderLight,
+                  textAlign: "center",
+                }}>
+                  <div style={{ fontSize: 11, color: C.textMid, marginBottom: 4 }}>{s.label}</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: s.color }}>{s.value}</div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              {/* 各決議單位的執行特性 */}
+              <div>
+                <div style={{ fontSize: 12, color: C.textMid, fontWeight: 500, marginBottom: 8 }}>
+                  各決議單位的執行特性
+                </div>
+                <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid " + C.border, color: C.textMid }}>
+                      <th style={{ textAlign: "left", padding: "6px 8px", fontWeight: 500 }}>單位</th>
+                      <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 500 }}>件數</th>
+                      <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 500 }}>達成率</th>
+                      <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 500 }}>平均天數</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(patterns.sourceStats).map(([k, s]) => (
+                      <tr key={k} style={{ borderBottom: "1px solid " + C.borderLight }}>
+                        <td style={{ padding: "6px 8px", fontWeight: 500 }}>{k}</td>
+                        <td style={{ textAlign: "right", padding: "6px 8px" }}>{s.total}</td>
+                        <td style={{
+                          textAlign: "right",
+                          padding: "6px 8px",
+                          color: s.completionRate >= 70 ? C.success : s.completionRate >= 50 ? C.warn : C.danger,
+                          fontWeight: 600,
+                        }}>{s.completionRate}%</td>
+                        <td style={{ textAlign: "right", padding: "6px 8px", color: C.textMid }}>{s.avgDays}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* 各部門的執行特性 */}
+              <div>
+                <div style={{ fontSize: 12, color: C.textMid, fontWeight: 500, marginBottom: 8 }}>
+                  各執行部門的承接特性
+                </div>
+                <table style={{ width: "100%", fontSize: 11, borderCollapse: "collapse" }}>
+                  <thead>
+                    <tr style={{ borderBottom: "1px solid " + C.border, color: C.textMid }}>
+                      <th style={{ textAlign: "left", padding: "6px 8px", fontWeight: 500 }}>部門</th>
+                      <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 500 }}>件數</th>
+                      <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 500 }}>達成率</th>
+                      <th style={{ textAlign: "right", padding: "6px 8px", fontWeight: 500 }}>平均天數</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(patterns.deptStats).map(([k, s]) => (
+                      <tr key={k} style={{ borderBottom: "1px solid " + C.borderLight }}>
+                        <td style={{ padding: "6px 8px", fontWeight: 500 }}>{k}</td>
+                        <td style={{ textAlign: "right", padding: "6px 8px" }}>{s.total}</td>
+                        <td style={{
+                          textAlign: "right",
+                          padding: "6px 8px",
+                          color: s.completionRate >= 70 ? C.success : s.completionRate >= 50 ? C.warn : C.danger,
+                          fontWeight: 600,
+                        }}>{s.completionRate}%</td>
+                        <td style={{ textAlign: "right", padding: "6px 8px", color: C.textMid }}>{s.avgDays}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div style={{
+              marginTop: 14,
+              padding: "10px 12px",
+              background: C.purpleLight,
+              borderRadius: 6,
+              fontSize: 11,
+              color: "#3C3489",
+              lineHeight: 1.7,
+            }}>
+              <strong>📊 模式洞察:</strong>
+              {(() => {
+                const sources = Object.entries(patterns.sourceStats).sort((a, b) => b[1].completionRate - a[1].completionRate);
+                const depts = Object.entries(patterns.deptStats).sort((a, b) => b[1].completionRate - a[1].completionRate);
+                const bestSource = sources[0]?.[0];
+                const worstDept = depts[depts.length - 1]?.[0];
+                return `${bestSource}的決策達成率最高 (${sources[0]?.[1].completionRate}%);${worstDept}的決策執行壓力較大,值得管理層深入了解原因。`;
+              })()}
+            </div>
+          </Card>
+        );
+      })()}
+
       {/* 決策列表(分組顯示) */}
       {[
         { label: "逾期(需優先追蹤)", items: decisions.filter((d) => d.status === "逾期"), tone: "danger" },
@@ -4015,6 +5073,106 @@ function EmployeeLoad({ reports, handoffs }) {
                 本週週報:{selected.hasReport ? "已繳交" : "尚未繳交"}
               </div>
 
+              {/* B4. 員工成長追蹤 */}
+              {(() => {
+                const growth = analyzeEmployeeGrowth(selected, reports);
+                if (!growth.hasData) return null;
+
+                const max = Math.max(...growth.weeklyMetrics.map((m) => m.complexityScore), 1);
+                const isGrowth = growth.growthDirection === "成長";
+                const isDecline = growth.growthDirection === "下降";
+
+                return (
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginBottom: 8,
+                    }}>
+                      <div style={{ fontSize: 11, color: C.textLight, fontWeight: 500 }}>
+                        📈 任務複雜度演進(B4 成長追蹤)
+                      </div>
+                      <Pill tone={isGrowth ? "teal" : isDecline ? "warn" : "neutral"}>
+                        {growth.growthDirection} {parseFloat(growth.growthRate) > 0 ? "+" : ""}{growth.growthRate}%
+                      </Pill>
+                    </div>
+
+                    <div style={{
+                      padding: 12,
+                      background: C.bg,
+                      borderRadius: 6,
+                      border: "1px solid " + C.borderLight,
+                    }}>
+                      {/* 趨勢圖 */}
+                      <div style={{
+                        display: "flex",
+                        alignItems: "flex-end",
+                        height: 70,
+                        gap: 3,
+                        marginBottom: 8,
+                      }}>
+                        {growth.weeklyMetrics.map((m, i) => (
+                          <div key={i} style={{
+                            flex: 1,
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                          }}>
+                            <div style={{
+                              width: "100%",
+                              height: (m.complexityScore / max) * 50 || 2,
+                              background: C.purple,
+                              opacity: 0.4 + (i / growth.weeklyMetrics.length) * 0.6,
+                              borderRadius: "2px 2px 0 0",
+                            }} title={`${m.week}: 複雜度 ${m.complexityScore.toFixed(1)}`}/>
+                            <div style={{ fontSize: 9, color: C.textLight, marginTop: 3 }}>
+                              {m.week.replace("第 ", "W")}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(3, 1fr)",
+                        gap: 6,
+                        fontSize: 10,
+                      }}>
+                        <div style={{ textAlign: "center", padding: "4px 6px", background: "white", borderRadius: 4 }}>
+                          <div style={{ color: C.textLight }}>每週案件數</div>
+                          <div style={{ fontWeight: 600 }}>{growth.avgCaseCount}</div>
+                        </div>
+                        <div style={{ textAlign: "center", padding: "4px 6px", background: "white", borderRadius: 4 }}>
+                          <div style={{ color: C.textLight }}>關鍵字多元性</div>
+                          <div style={{ fontWeight: 600 }}>{growth.avgKeywordDiversity}</div>
+                        </div>
+                        <div style={{ textAlign: "center", padding: "4px 6px", background: "white", borderRadius: 4 }}>
+                          <div style={{ color: C.textLight }}>跨部門協作</div>
+                          <div style={{ fontWeight: 600 }}>{growth.avgCrossDept}</div>
+                        </div>
+                      </div>
+
+                      <div style={{
+                        marginTop: 8,
+                        padding: "6px 10px",
+                        background: "white",
+                        borderRadius: 4,
+                        fontSize: 10,
+                        color: C.textMid,
+                        lineHeight: 1.6,
+                      }}>
+                        前 {Math.ceil(growth.weeklyMetrics.length / 2)} 週平均複雜度 <strong>{growth.earlyComplexity}</strong>
+                        → 後 {Math.floor(growth.weeklyMetrics.length / 2)} 週 <strong>{growth.lateComplexity}</strong>
+                        {isGrowth && <span style={{ color: C.success }}> · 任務難度持續上升,展現能力擴張</span>}
+                        {isDecline && <span style={{ color: C.warn }}> · 任務複雜度下降,值得關注</span>}
+                        {!isGrowth && !isDecline && <span> · 工作模式穩定</span>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {/* 建議 */}
               {selected.level === "overload" && (
                 <div style={{
@@ -4046,6 +5204,329 @@ function EmployeeLoad({ reports, handoffs }) {
           );
         })()}
       </Modal>
+    </div>
+  );
+}
+
+// ============================================================
+// 組織分析頁(B1 + B2)
+// ============================================================
+function OrgAnalytics({ reports, activityHistory }) {
+  const network = useMemo(() => analyzeDeptNetwork(reports), [reports]);
+  const predictions = useMemo(() => predictNextWeek(activityHistory), [activityHistory]);
+
+  // 計算 SVG 上各部門的位置(等距三角形)
+  const W = 540, H = 380;
+  const centerX = W / 2, centerY = H / 2 + 10;
+  const radius = 130;
+  const positions = {};
+  network.depts.forEach((d, i) => {
+    const angle = -Math.PI / 2 + (i * 2 * Math.PI / network.depts.length);
+    positions[d] = {
+      x: centerX + radius * Math.cos(angle),
+      y: centerY + radius * Math.sin(angle),
+    };
+  });
+
+  const maxWeight = Math.max(...network.edges.map((e) => e.weight), 1);
+
+  return (
+    <div style={{ padding: "24px 28px", maxWidth: 980 }}>
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>
+          ORGANIZATION ANALYTICS
+        </div>
+        <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>組織分析</h1>
+        <div style={{ fontSize: 13, color: C.textMid, marginTop: 4 }}>
+          部門互動網絡 + 趨勢預警 · 協助管理層掌握組織協作健康度
+        </div>
+      </div>
+
+      {/* B1. 部門互動網絡圖 */}
+      <Card style={{ padding: 20, marginBottom: 16 }}>
+        <SectionTitle color={C.purple} hint="從週報文字中萃取部門間協作頻率">
+          部門互動網絡(B1)
+        </SectionTitle>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 20 }}>
+          {/* SVG 網絡圖 */}
+          <div style={{
+            background: C.bg,
+            borderRadius: 8,
+            border: "1px solid " + C.borderLight,
+            padding: 8,
+          }}>
+            <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto" }}>
+              {/* 連線(箭頭) */}
+              <defs>
+                <marker
+                  id="arrow"
+                  viewBox="0 0 10 10"
+                  refX="9"
+                  refY="5"
+                  markerWidth="6"
+                  markerHeight="6"
+                  orient="auto"
+                >
+                  <path d="M 0 0 L 10 5 L 0 10 z" fill={C.purple} />
+                </marker>
+              </defs>
+
+              {network.edges.map((e, i) => {
+                const from = positions[e.from];
+                const to = positions[e.to];
+                // 偏移端點避免覆蓋圓形
+                const dx = to.x - from.x;
+                const dy = to.y - from.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const offsetRatio = 42 / dist;
+                // 加入弧度效果(雙向時不重疊)
+                const reverseExists = network.edges.find((re) => re.from === e.to && re.to === e.from);
+                const curveOffset = reverseExists ? 18 : 0;
+                const midX = (from.x + to.x) / 2 + (dy / dist) * curveOffset;
+                const midY = (from.y + to.y) / 2 - (dx / dist) * curveOffset;
+
+                const startX = from.x + dx * offsetRatio;
+                const startY = from.y + dy * offsetRatio;
+                const endX = to.x - dx * offsetRatio;
+                const endY = to.y - dy * offsetRatio;
+
+                const strokeWidth = 1 + (e.weight / maxWeight) * 5;
+                const opacity = 0.4 + (e.weight / maxWeight) * 0.55;
+
+                return (
+                  <g key={i}>
+                    <path
+                      d={`M ${startX} ${startY} Q ${midX} ${midY} ${endX} ${endY}`}
+                      fill="none"
+                      stroke={C.purple}
+                      strokeWidth={strokeWidth}
+                      strokeOpacity={opacity}
+                      markerEnd="url(#arrow)"
+                    />
+                    <text
+                      x={midX}
+                      y={midY}
+                      fill={C.purple}
+                      fontSize="11"
+                      fontWeight="600"
+                      textAnchor="middle"
+                      dominantBaseline="middle"
+                      style={{ pointerEvents: "none" }}
+                    >
+                      <tspan dx="0" dy="0" style={{
+                        paintOrder: "stroke",
+                        stroke: "white",
+                        strokeWidth: 4,
+                        strokeLinejoin: "round",
+                      }}>{e.weight}</tspan>
+                    </text>
+                  </g>
+                );
+              })}
+
+              {/* 節點(部門) */}
+              {network.depts.map((d) => {
+                const p = positions[d];
+                const stat = network.stats[d];
+                const total = stat.outgoing + stat.incoming;
+                const nodeRadius = 38 + Math.min(15, total * 1.5);
+                return (
+                  <g key={d}>
+                    <circle
+                      cx={p.x}
+                      cy={p.y}
+                      r={nodeRadius}
+                      fill={C.accent}
+                      fillOpacity="0.92"
+                      stroke="white"
+                      strokeWidth="3"
+                    />
+                    <text
+                      x={p.x}
+                      y={p.y - 4}
+                      fill="white"
+                      fontSize="13"
+                      fontWeight="600"
+                      textAnchor="middle"
+                    >
+                      {d.replace("部", "")}
+                    </text>
+                    <text
+                      x={p.x}
+                      y={p.y + 12}
+                      fill="white"
+                      fontSize="10"
+                      fontWeight="400"
+                      textAnchor="middle"
+                      opacity="0.8"
+                    >
+                      ↑{stat.outgoing} ↓{stat.incoming}
+                    </text>
+                  </g>
+                );
+              })}
+            </svg>
+            <div style={{ fontSize: 11, color: C.textLight, textAlign: "center", marginTop: 4 }}>
+              節點大小 = 互動總量 · 線條粗細 = 互動次數 · 數字 = 該方向提及次數
+            </div>
+          </div>
+
+          {/* 數據摘要 */}
+          <div>
+            <div style={{ fontSize: 12, color: C.textMid, marginBottom: 8, fontWeight: 500 }}>
+              各部門協作熱度
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16 }}>
+              {network.depts.map((d) => {
+                const s = network.stats[d];
+                const total = s.outgoing + s.incoming;
+                const tone = total >= 8 ? "danger" : total >= 4 ? "warn" : "teal";
+                return (
+                  <div key={d} style={{
+                    padding: "10px 12px",
+                    background: C.bg,
+                    borderRadius: 6,
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600 }}>{d}</span>
+                      <Pill tone={tone}>{total} 次</Pill>
+                    </div>
+                    <div style={{ fontSize: 11, color: C.textMid }}>
+                      請求他人 {s.outgoing} 次 · 被請求 {s.incoming} 次
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div style={{
+              padding: 12,
+              background: C.purpleLight,
+              borderRadius: 6,
+              fontSize: 11,
+              color: "#3C3489",
+              lineHeight: 1.7,
+            }}>
+              <strong>💡 解讀:</strong>
+              {(() => {
+                const sortedByTotal = [...network.depts].sort((a, b) => {
+                  const ta = network.stats[a].outgoing + network.stats[a].incoming;
+                  const tb = network.stats[b].outgoing + network.stats[b].incoming;
+                  return tb - ta;
+                });
+                return `${sortedByTotal[0]}是最活躍的協作節點,顯示其在跨部門案件中扮演重要角色。`;
+              })()}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* B2. 趨勢預警(下週預測) */}
+      <Card style={{ padding: 20, marginBottom: 16 }}>
+        <SectionTitle color={C.warn} hint="基於 8 週歷史的線性回歸外推">
+          下週趨勢預警(B2)
+        </SectionTitle>
+
+        {predictions.length === 0 ? (
+          <div style={{ padding: 20, textAlign: "center", color: C.textLight, fontSize: 13 }}>
+            ✓ 各部門指標目前處於穩定範圍,無顯著上升趨勢
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {predictions.map((p, i) => {
+              const color = riskLevelColor(p.severity === "high" ? "high" : "medium");
+              return (
+                <div key={i} style={{
+                  padding: "14px 16px",
+                  background: color.bg,
+                  border: "1px solid " + color.fg + "30",
+                  borderRadius: 8,
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: color.fg, marginBottom: 4 }}>
+                        🔮 預計下週:{p.dept}「{p.metricLabel}」{p.direction}
+                      </div>
+                      <div style={{ fontSize: 11, color: color.fg, opacity: 0.85 }}>
+                        模型:線性回歸外推 · 信心度 {Math.round(p.confidence)}%
+                      </div>
+                    </div>
+                    <Pill tone={p.severity === "high" ? "warn" : "purple"}>
+                      z = +{p.z}σ
+                    </Pill>
+                  </div>
+
+                  <div style={{
+                    display: "grid",
+                    gridTemplateColumns: "repeat(4, 1fr)",
+                    gap: 6,
+                    fontSize: 11,
+                  }}>
+                    <div style={{
+                      padding: "6px 8px",
+                      background: "white",
+                      borderRadius: 4,
+                      textAlign: "center",
+                    }}>
+                      <div style={{ color: C.textMid, fontSize: 10 }}>下週預測</div>
+                      <div style={{ fontWeight: 600, color: color.fg }}>{p.predicted}</div>
+                    </div>
+                    <div style={{
+                      padding: "6px 8px",
+                      background: "white",
+                      borderRadius: 4,
+                      textAlign: "center",
+                    }}>
+                      <div style={{ color: C.textMid, fontSize: 10 }}>近 3 週均</div>
+                      <div style={{ fontWeight: 600 }}>{p.recentAvg}</div>
+                    </div>
+                    <div style={{
+                      padding: "6px 8px",
+                      background: "white",
+                      borderRadius: 4,
+                      textAlign: "center",
+                    }}>
+                      <div style={{ color: C.textMid, fontSize: 10 }}>8 週均</div>
+                      <div style={{ fontWeight: 600 }}>{p.overallAvg}</div>
+                    </div>
+                    <div style={{
+                      padding: "6px 8px",
+                      background: "white",
+                      borderRadius: 4,
+                      textAlign: "center",
+                    }}>
+                      <div style={{ color: C.textMid, fontSize: 10 }}>趨勢斜率</div>
+                      <div style={{ fontWeight: 600, color: parseFloat(p.slope) > 0 ? C.danger : C.success }}>
+                        {parseFloat(p.slope) > 0 ? "+" : ""}{p.slope}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
+      {/* 方法論 */}
+      <Card style={{ padding: 18, background: C.bg }}>
+        <SectionTitle color={C.textMid}>分析方法論</SectionTitle>
+        <div style={{ fontSize: 12, color: C.textMid, lineHeight: 1.8 }}>
+          <div style={{ marginBottom: 8 }}>
+            <strong style={{ color: C.text }}>① 部門互動網絡(B1):</strong>
+            從週報內容中,以正則匹配抽取每位填寫者提及其他部門的頻率,構成部門間的鄰接矩陣 (adjacency matrix),並以圖論視覺化呈現。
+          </div>
+          <div style={{ marginBottom: 8 }}>
+            <strong style={{ color: C.text }}>② 趨勢預警(B2):</strong>
+            對過去 8 週活動量做最小平方法線性回歸,計算斜率與截距,外推至下一週。同時計算預測值相對於歷史的 z-score,當 z ≥ 0.8 時觸發警示。
+          </div>
+          <div>
+            <strong style={{ color: C.text }}>③ 信心度估計:</strong>
+            基於斜率的絕對值與 z-score 的綜合指標,反映模型對該預測的把握程度。
+          </div>
+        </div>
+      </Card>
     </div>
   );
 }
@@ -4360,6 +5841,7 @@ export default function App() {
     { id: "employees", label: "員工負載", icon: Users, roles: ["admin"] },
     { id: "history", label: "歷史搜尋", icon: Search, roles: ["admin", "manager"] },
     { id: "analytics", label: "卡點分析", icon: BarChart3, roles: ["admin", "manager"] },
+    { id: "orgnetwork", label: "組織分析", icon: TrendingUp, roles: ["admin"] },
     { id: "linebot", label: "LINE Bot", icon: MessageCircle, roles: ["admin", "manager", "member"] },
   ];
   const tabs = allTabs.filter((t) => t.roles.includes(userProfile?.role || "member"));
@@ -4627,6 +6109,7 @@ export default function App() {
         {currentTab === "employees" && <EmployeeLoad reports={reports} handoffs={handoffs} />}
         {currentTab === "history" && <History history={history} />}
         {currentTab === "analytics" && <BlockerAnalytics blockerHistory={blockerHistory} reports={reports} />}
+        {currentTab === "orgnetwork" && <OrgAnalytics reports={reports} activityHistory={activityHistory} />}
         {currentTab === "linebot" && <LineBot reports={reports} handoffs={handoffs} />}
       </main>
     </div>
