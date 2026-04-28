@@ -4364,12 +4364,8 @@ export default function App() {
   ];
   const tabs = allTabs.filter((t) => t.roles.includes(userProfile?.role || "member"));
 
-  // 如果使用者目前在的 tab 因為權限變動已不可見,自動切回 dashboard
-  useEffect(() => {
-    if (userProfile && !tabs.find((t) => t.id === tab)) {
-      setTab("dashboard");
-    }
-  }, [userProfile, tab, tabs]);
+  // 注意:tab 自動切換邏輯改為直接判斷渲染,避免 hooks 順序問題
+  const currentTab = tabs.find((t) => t.id === tab) ? tab : "dashboard";
 
   return (
     <div
@@ -4421,7 +4417,7 @@ export default function App() {
         <nav style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
           {tabs.map((t) => {
             const Icon = t.icon;
-            const active = tab === t.id;
+            const active = currentTab === t.id;
             return (
               <button
                 key={t.id}
@@ -4615,7 +4611,7 @@ export default function App() {
 
       {/* 主內容 */}
       <main style={{ flex: 1, overflow: "auto" }}>
-        {tab === "dashboard" && <Dashboard
+        {currentTab === "dashboard" && <Dashboard
           reports={reports}
           handoffs={handoffs}
           blockerHistory={blockerHistory}
@@ -4625,13 +4621,13 @@ export default function App() {
           onNav={navigateTo}
           userProfile={userProfile}
         />}
-        {tab === "report" && <WeeklyReport reports={reports} setReports={setReports} />}
-        {tab === "handoff" && <Handoff handoffs={handoffs} setHandoffs={setHandoffs} focusId={focusHandoffId} />}
-        {tab === "decisions" && <Decisions decisions={decisions} setDecisions={setDecisions} />}
-        {tab === "employees" && <EmployeeLoad reports={reports} handoffs={handoffs} />}
-        {tab === "history" && <History history={history} />}
-        {tab === "analytics" && <BlockerAnalytics blockerHistory={blockerHistory} reports={reports} />}
-        {tab === "linebot" && <LineBot reports={reports} handoffs={handoffs} />}
+        {currentTab === "report" && <WeeklyReport reports={reports} setReports={setReports} />}
+        {currentTab === "handoff" && <Handoff handoffs={handoffs} setHandoffs={setHandoffs} focusId={focusHandoffId} />}
+        {currentTab === "decisions" && <Decisions decisions={decisions} setDecisions={setDecisions} />}
+        {currentTab === "employees" && <EmployeeLoad reports={reports} handoffs={handoffs} />}
+        {currentTab === "history" && <History history={history} />}
+        {currentTab === "analytics" && <BlockerAnalytics blockerHistory={blockerHistory} reports={reports} />}
+        {currentTab === "linebot" && <LineBot reports={reports} handoffs={handoffs} />}
       </main>
     </div>
   );
