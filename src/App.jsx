@@ -2843,7 +2843,7 @@ const Modal = ({ open, onClose, title, subtitle, children, maxWidth = 560 }) => 
   );
 };
 
-const Card = ({ children, style }) => (
+const Card = ({ children, style, ...rest }) => (
   <div
     style={{
       background: C.surface,
@@ -2851,6 +2851,7 @@ const Card = ({ children, style }) => (
       borderRadius: 10,
       ...style,
     }}
+    {...rest}
   >
     {children}
   </div>
@@ -5472,10 +5473,42 @@ function Handoff({ handoffs, setHandoffs, focusId, departments = SEED_DEPARTMENT
 // ============================================================
 // 歷史案件搜尋
 // ============================================================
-function History({ history }) {
+function History({ history, handoffs = [], decisions = [], reports = [] }) {
   const [q, setQ] = useState("FinTech 新創 Pre-A 估值");
   const [viewCase, setViewCase] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
+
+  const getRelated = (item) => {
+    const terms = [
+      ...item.tags,
+      ...item.title.split(/[\s·]/),
+    ].map((t) => t.trim().toLowerCase()).filter((t) => t.length >= 2);
+
+    const score = (text) => {
+      const lower = (text || "").toLowerCase();
+      return terms.filter((t) => lower.includes(t)).length;
+    };
+
+    const relatedHandoffs = handoffs
+      .map((h) => ({ ...h, _score: score(h.title + " " + h.background) }))
+      .filter((h) => h._score > 0)
+      .sort((a, b) => b._score - a._score)
+      .slice(0, 3);
+
+    const relatedDecisions = decisions
+      .map((d) => ({ ...d, _score: score(d.title + " " + d.content) }))
+      .filter((d) => d._score > 0)
+      .sort((a, b) => b._score - a._score)
+      .slice(0, 3);
+
+    const relatedReports = reports
+      .map((r) => ({ ...r, _score: score(r.cases + " " + (r.keywords || []).join(" ")) }))
+      .filter((r) => r._score > 0)
+      .sort((a, b) => b._score - a._score)
+      .slice(0, 3);
+
+    return { relatedHandoffs, relatedDecisions, relatedReports };
+  };
 
   const score = (item) => {
     if (!q.trim()) return 100;
@@ -5635,10 +5668,79 @@ function History({ history }) {
                             💡 {r.detail.lessons}
                           </div>
                         )}
+                        {/* 相關系統資料 */}
+                        {(() => {
+                          const { relatedHandoffs, relatedDecisions, relatedReports } = getRelated(r);
+                          const hasAny = relatedHandoffs.length || relatedDecisions.length || relatedReports.length;
+                          if (!hasAny) return null;
+                          const statusColor = (s) =>
+                            s === "已完成" ? C.success : s === "逾期" ? C.danger : s === "待簽收" ? C.warn : C.accent;
+                          return (
+                            <div style={{ marginTop: 14, borderTop: "1px solid " + C.borderLight, paddingTop: 12 }}>
+                              <div style={{ fontSize: 11, color: C.textMid, fontWeight: 600, marginBottom: 10 }}>
+                                🔗 系統關聯資料
+                              </div>
+                              {relatedHandoffs.length > 0 && (
+                                <div style={{ marginBottom: 10 }}>
+                                  <div style={{ fontSize: 11, color: C.textLight, marginBottom: 5 }}>📁 相關交接單</div>
+                                  {relatedHandoffs.map((h) => (
+                                    <div key={h.id} style={{
+                                      padding: "8px 10px", background: C.bg, borderRadius: 6,
+                                      marginBottom: 4, fontSize: 12,
+                                      borderLeft: "3px solid " + statusColor(h.status),
+                                    }}>
+                                      <div style={{ fontWeight: 600, marginBottom: 2 }}>{h.title}</div>
+                                      <div style={{ color: C.textMid, fontSize: 11 }}>
+                                        {h.from} → {h.to} ·
+                                        <span style={{ color: statusColor(h.status), marginLeft: 4 }}>{h.status}</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {relatedDecisions.length > 0 && (
+                                <div style={{ marginBottom: 10 }}>
+                                  <div style={{ fontSize: 11, color: C.textLight, marginBottom: 5 }}>⚖️ 相關決策</div>
+                                  {relatedDecisions.map((d) => (
+                                    <div key={d.id} style={{
+                                      padding: "8px 10px", background: C.bg, borderRadius: 6,
+                                      marginBottom: 4, fontSize: 12,
+                                      borderLeft: "3px solid " + statusColor(d.status),
+                                    }}>
+                                      <div style={{ fontWeight: 600, marginBottom: 2 }}>{d.title}</div>
+                                      <div style={{ color: C.textMid, fontSize: 11 }}>
+                                        {d.decidedBy} · {d.decidedAt} ·
+                                        <span style={{ color: statusColor(d.status), marginLeft: 4 }}>{d.status}</span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                              {relatedReports.length > 0 && (
+                                <div style={{ marginBottom: 10 }}>
+                                  <div style={{ fontSize: 11, color: C.textLight, marginBottom: 5 }}>📝 相關週報</div>
+                                  {relatedReports.map((rp, i) => (
+                                    <div key={i} style={{
+                                      padding: "8px 10px", background: C.bg, borderRadius: 6,
+                                      marginBottom: 4, fontSize: 12,
+                                      borderLeft: "3px solid " + C.accent,
+                                    }}>
+                                      <div style={{ fontWeight: 600, marginBottom: 2 }}>第 {rp.week} 週 · {rp.dept}</div>
+                                      <div style={{ color: C.textMid, fontSize: 11, lineHeight: 1.6 }}>
+                                        {(rp.cases || "").slice(0, 80)}{rp.cases?.length > 80 ? "..." : ""}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
                         <button
                           onClick={() => setViewCase(r)}
                           style={{
-                            marginTop: 4, padding: "6px 14px", background: C.accent, color: "white",
+                            marginTop: 8, padding: "6px 14px", background: C.accent, color: "white",
                             border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600,
                             cursor: "pointer", fontFamily: "inherit",
                           }}
@@ -8951,7 +9053,7 @@ export default function App() {
         {currentTab === "handoff" && <Handoff handoffs={handoffs} setHandoffs={setHandoffsAudited} focusId={focusHandoffId} departments={departments} userProfile={userProfile} />}
         {currentTab === "decisions" && <Decisions decisions={decisions} setDecisions={setDecisionsAudited} departments={departments} userProfile={userProfile} />}
         {currentTab === "employees" && <EmployeeLoad reports={reports} handoffs={handoffs} decisions={decisions} employees={employees} />}
-        {currentTab === "history" && <History history={history} />}
+        {currentTab === "history" && <History history={history} handoffs={handoffs} decisions={decisions} reports={reports} />}
         {currentTab === "analytics" && <BlockerAnalytics blockerHistory={blockerHistory} blockers={blockers} reports={reports} />}
         {currentTab === "orgnetwork" && <OrgAnalytics reports={reports} activityHistory={activityHistory} departments={departments} />}
         {currentTab === "meetings" && <MeetingPrep
