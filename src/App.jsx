@@ -33,6 +33,8 @@ import {
   logout,
   fetchCollection,
   saveCollection,
+  fetchDocumentCollection,
+  saveDocumentCollection,
   inferUserProfile,
   ROLES,
   ROLE_LABELS,
@@ -711,77 +713,167 @@ const SEED_HISTORY = [
 ];
 
 // ============================================================
-// 歷史卡點資料庫
-// 模擬過去 6 個月(第 16–41 週)累積的 60 筆已解決卡點
-// 每筆資料包含:類別、涉及部門數、案件金額級別、實際解決天數
-// 用於:統計分析 + 異常檢測 + z-score 排序
+// 卡點資料模型與歷史 seed
+// Demo seed 刻意使用右偏解決天數,避免先假設常態分佈再用常態方法分析。
 // ============================================================
+const CURRENT_WEEK_ID = "第 42 週";
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const DEFAULT_BLOCKER_SLA_DAYS = 14;
+
 const BLOCKER_CATEGORIES = [
-  { key: "法遵", label: "法遵審核", keywords: ["法遵", "合規", "法律", "審核", "NDA"], color: "#A32D2D" },
-  { key: "資金", label: "資金調度", keywords: ["資金", "募資", "Q4", "配置", "分潤"], color: "#534AB7" },
-  { key: "資料", label: "資料取得", keywords: ["財務", "財報", "資料", "盡調", "訪談"], color: "#B36B00" },
-  { key: "跨部門", label: "跨部門協調", keywords: ["聯繫", "協助", "對接", "溝通"], color: "#0F6E56" },
-  { key: "決策", label: "決策等待", keywords: ["決議", "決策", "簽核", "委員會"], color: "#1F4E79" },
+  { key: "法遵/合約", label: "法遵/合約", keywords: ["法遵", "合規", "法律", "法務", "合約", "契約", "審核", "NDA", "條款"], color: "#A32D2D" },
+  { key: "資金/募資", label: "資金/募資", keywords: ["資金", "募資", "配置", "分潤", "預算", "撥款", "現金流"], color: "#534AB7" },
+  { key: "資料/補件", label: "資料/補件", keywords: ["財務", "財報", "資料", "補件", "盡調", "訪談", "缺漏", "收齊"], color: "#B36B00" },
+  { key: "跨部門/窗口", label: "跨部門/窗口", keywords: ["聯繫", "協助", "對接", "溝通", "窗口", "協調", "同步"], color: "#0F6E56" },
+  { key: "決策/簽核", label: "決策/簽核", keywords: ["決議", "決策", "簽核", "委員會", "董事會", "拍板", "核准"], color: "#1F4E79" },
+  { key: "時程/聯繫", label: "時程/聯繫", keywords: ["行程", "排程", "時程", "延遲", "未通", "難安排", "等待", "催促"], color: "#7A5A22" },
+  { key: "其他", label: "其他", keywords: [], color: "#6E6862" },
 ];
 
-// 類別對應的實際統計參數(用於生成合理範例資料的母體)
-const CATEGORY_STATS_PARAMS = {
-  法遵: { mean: 8.5, std: 3.2, n: 28 },
-  資金: { mean: 5.8, std: 2.4, n: 20 },
-  資料: { mean: 6.2, std: 3.8, n: 30 },
-  跨部門: { mean: 4.5, std: 2.1, n: 24 },
-  決策: { mean: 7.8, std: 4.5, n: 18 },
-};
-
-// 以 seed 產生可重現的隨機常態分佈
-function seededRandom(seed) {
-  let s = seed;
-  return function() {
-    s = (s * 9301 + 49297) % 233280;
-    return s / 233280;
-  };
-}
-function normalSample(rnd, mean, std) {
-  const u1 = rnd() || 0.001;
-  const u2 = rnd();
-  const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-  return Math.max(1, Math.round(mean + z * std));
+function daysAgoIso(days) {
+  const d = new Date();
+  d.setHours(9, 0, 0, 0);
+  d.setDate(d.getDate() - days);
+  return d.toISOString();
 }
 
-// 產生歷史卡點範例
-const SEED_BLOCKER_HISTORY = (() => {
-  const rnd = seededRandom(42);
-  const data = [];
-  const depts = ["投資研究部", "業務開發部", "資產管理部"];
-  const caseSizeLevels = ["S", "M", "L", "XL"];
-  const titles = {
-    法遵: ["NDA 條款審閱", "法遵合規檢查", "投資契約審核", "監管風險評估"],
-    資金: ["Q3 資金配置", "募資方案評估", "分潤機制調整", "備用金撥款"],
-    資料: ["財務資料收齊", "盡調資料整理", "訪談紀錄補件", "財報翻譯校對"],
-    跨部門: ["部門資訊同步", "跨部門對接窗口", "聯絡外部單位", "會議資料整合"],
-    決策: ["投資委員會決議", "投資條件書簽核", "退出決策評估", "追加投資決議"],
-  };
+function addDaysIso(dateString, days) {
+  const d = new Date(dateString);
+  d.setDate(d.getDate() + days);
+  return d.toISOString();
+}
 
-  let id = 1;
-  Object.entries(CATEGORY_STATS_PARAMS).forEach(([cat, params]) => {
-    for (let i = 0; i < params.n; i++) {
-      const days = normalSample(rnd, params.mean, params.std);
-      const weekNum = 16 + Math.floor(rnd() * 25);
-      data.push({
-        id: "bh" + id++,
-        category: cat,
-        title: titles[cat][i % titles[cat].length] + (i > 3 ? ` · 案件 ${i}` : ""),
-        dept: depts[Math.floor(rnd() * 3)],
-        crossDepts: 1 + Math.floor(rnd() * 3),
-        caseSize: caseSizeLevels[Math.floor(rnd() * 4)],
-        daysToResolve: days,
-        resolvedAt: `第 ${weekNum} 週`,
-        weekNum,
-      });
-    }
-  });
-  return data.sort((a, b) => a.weekNum - b.weekNum);
-})();
+function makeHistoryBlocker(id, category, daysToResolve, title, dept, weekNum, caseSize = "M") {
+  const createdAt = new Date(2025, 0, 6 + id * 2).toISOString();
+  return {
+    id: "bh" + id,
+    category,
+    title,
+    dept,
+    owner: "系統範例",
+    status: "resolved",
+    createdAt,
+    resolvedAt: addDaysIso(createdAt, daysToResolve),
+    updatedAt: addDaysIso(createdAt, daysToResolve),
+    daysToResolve,
+    crossDepts: 1 + (id % 3),
+    caseSize,
+    weekNum,
+    source: "demo-seed",
+  };
+}
+
+const SEED_BLOCKER_HISTORY = [
+  ...[2, 3, 4, 5, 6, 7, 8, 11, 16, 24].map((d, i) => makeHistoryBlocker(1 + i, "法遵/合約", d, ["NDA 條款審閱", "投資契約審核", "法務意見回覆", "監管風險評估"][i % 4], ["資產管理部", "業務開發部", "投資研究部"][i % 3], 18 + i)),
+  ...[1, 2, 3, 4, 5, 6, 9, 13, 22].map((d, i) => makeHistoryBlocker(20 + i, "資金/募資", d, ["募資規模確認", "資金配置試算", "預算追加評估"][i % 3], ["營運與管理層", "資產管理部", "業務開發部"][i % 3], 20 + i)),
+  ...[2, 3, 3, 4, 5, 7, 10, 15, 28].map((d, i) => makeHistoryBlocker(40 + i, "資料/補件", d, ["財報補件", "盡調資料收齊", "訪談紀錄整理", "資料格式校對"][i % 4], ["投資研究部", "業務開發部", "資產管理部"][i % 3], 22 + i)),
+  ...[1, 2, 2, 3, 4, 5, 8, 12, 19].map((d, i) => makeHistoryBlocker(60 + i, "跨部門/窗口", d, ["對接窗口確認", "部門資訊同步", "外部單位聯繫"][i % 3], ["業務開發部", "投資研究部", "資產管理部"][i % 3], 24 + i)),
+  ...[3, 4, 5, 6, 8, 12, 18, 31].map((d, i) => makeHistoryBlocker(80 + i, "決策/簽核", d, ["投資委員會決議", "條件書簽核", "董事會拍板", "追加投資核准"][i % 4], ["營運與管理層", "投資研究部", "資產管理部"][i % 3], 26 + i)),
+  ...[1, 2, 3, 4, 5, 7, 10, 17].map((d, i) => makeHistoryBlocker(100 + i, "時程/聯繫", d, ["財務長行程安排", "會議排程確認", "外部窗口催促"][i % 3], ["業務開發部", "投資研究部", "資產管理部"][i % 3], 28 + i)),
+].sort((a, b) => a.weekNum - b.weekNum);
+
+const SEED_BLOCKERS = [
+  {
+    id: "b-demo-r1-1",
+    title: "A 新創財務資料尚未收齊",
+    description: "創辦人提供之 2024 年度財報為簡化版,需正式版才能進行估值。",
+    dept: "投資研究部",
+    owner: "周世倫",
+    category: "資料/補件",
+    status: "open",
+    createdAt: daysAgoIso(14),
+    updatedAt: daysAgoIso(2),
+    resolvedAt: null,
+    weekId: CURRENT_WEEK_ID,
+    sourceReportId: "r1",
+    sourceType: "weeklyReport",
+    relatedDepartments: ["業務開發部"],
+    caseId: "A 新創",
+    needsReview: false,
+    createdBy: "seed",
+    updatedBy: "seed",
+  },
+  {
+    id: "b-demo-r2-1",
+    title: "A 新創財務長行程難安排",
+    description: "本週已電話聯繫 4 次未通,影響投資條件書後續時程。",
+    dept: "業務開發部",
+    owner: "林聿平",
+    category: "時程/聯繫",
+    status: "open",
+    createdAt: daysAgoIso(5),
+    updatedAt: daysAgoIso(1),
+    resolvedAt: null,
+    weekId: CURRENT_WEEK_ID,
+    sourceReportId: "r2",
+    sourceType: "weeklyReport",
+    relatedDepartments: ["投資研究部"],
+    caseId: "A 新創",
+    needsReview: false,
+    createdBy: "seed",
+    updatedBy: "seed",
+  },
+  {
+    id: "b-demo-r2-2",
+    title: "D 客戶 NDA 條款有異議",
+    description: "D 客戶法務對 NDA 條款有 3 點異議,已轉給資管部審閱中。",
+    dept: "業務開發部",
+    owner: "林聿平",
+    category: "法遵/合約",
+    status: "open",
+    createdAt: daysAgoIso(5),
+    updatedAt: daysAgoIso(1),
+    resolvedAt: null,
+    weekId: CURRENT_WEEK_ID,
+    sourceReportId: "r2",
+    sourceType: "weeklyReport",
+    relatedDepartments: ["資產管理部"],
+    caseId: "D 客戶",
+    needsReview: false,
+    createdBy: "seed",
+    updatedBy: "seed",
+  },
+  {
+    id: "b-demo-r3-1",
+    title: "K 公司退場稅務方案待決議",
+    description: "法遵審核等待管理層決議已多日,涉及 K 公司退場時的稅務優化方案。",
+    dept: "資產管理部",
+    owner: "梁嘉芫",
+    category: "決策/簽核",
+    status: "open",
+    createdAt: daysAgoIso(9),
+    updatedAt: daysAgoIso(1),
+    resolvedAt: null,
+    weekId: CURRENT_WEEK_ID,
+    sourceReportId: "r3",
+    sourceType: "weeklyReport",
+    relatedDepartments: ["營運與管理層"],
+    caseId: "K 公司",
+    needsReview: false,
+    createdBy: "seed",
+    updatedBy: "seed",
+  },
+  {
+    id: "b-demo-r3-2",
+    title: "Q4 募資計畫尚未拍板",
+    description: "Q4 募資計畫尚未取得董事會明確指示,影響後續資金配置安排。",
+    dept: "資產管理部",
+    owner: "梁嘉芫",
+    category: "資金/募資",
+    status: "open",
+    createdAt: daysAgoIso(9),
+    updatedAt: daysAgoIso(1),
+    resolvedAt: null,
+    weekId: CURRENT_WEEK_ID,
+    sourceReportId: "r3",
+    sourceType: "weeklyReport",
+    relatedDepartments: ["營運與管理層"],
+    caseId: "Q4 募資",
+    needsReview: false,
+    createdBy: "seed",
+    updatedBy: "seed",
+  },
+];
 
 // ============================================================
 // 決策追蹤資料庫(Decision Log)
@@ -1038,8 +1130,20 @@ const SEED_TOPIC_HISTORY = [
 // 歷史週報活動統計(用於週報異常偵測)
 // 每週每部門的:協助請求數、卡點數、案件數
 // ============================================================
+function seededActivityRandom(seed) {
+  let s = seed;
+  return function() {
+    s = (s * 9301 + 49297) % 233280;
+    return s / 233280;
+  };
+}
+
+function activitySample(rnd, mean, spread) {
+  return mean + (rnd() - 0.5) * spread * 2;
+}
+
 const SEED_REPORT_ACTIVITY = (() => {
-  const rnd = seededRandom(88);
+  const rnd = seededActivityRandom(88);
   const depts = ["投資研究部", "業務開發部", "資產管理部"];
   const data = [];
   // 過去 16 週(26–41)的活動基礎值
@@ -1054,9 +1158,9 @@ const SEED_REPORT_ACTIVITY = (() => {
       data.push({
         week: w,
         dept: d,
-        helpRequests: Math.max(0, Math.round(normalSample(rnd, b.help, 0.9))),
-        blockers: Math.max(0, Math.round(normalSample(rnd, b.blockers, 0.6))),
-        cases: Math.max(1, Math.round(normalSample(rnd, b.cases, 1.2))),
+        helpRequests: Math.max(0, Math.round(activitySample(rnd, b.help, 0.9))),
+        blockers: Math.max(0, Math.round(activitySample(rnd, b.blockers, 0.6))),
+        cases: Math.max(1, Math.round(activitySample(rnd, b.cases, 1.2))),
       });
     });
   }
@@ -1096,14 +1200,6 @@ const stats = {
     return (value - m) / s;
   },
 
-  // 常態分佈 CDF 近似(Abramowitz & Stegun)
-  zToPercentile(z) {
-    const t = 1 / (1 + 0.2316419 * Math.abs(z));
-    const d = 0.3989423 * Math.exp((-z * z) / 2);
-    const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
-    return z > 0 ? (1 - p) * 100 : p * 100;
-  },
-
   histogram(arr, bins = 8) {
     if (!arr.length) return [];
     const min = Math.min(...arr);
@@ -1123,9 +1219,13 @@ const stats = {
   },
 };
 
-// 卡點分類(text mining)
+function getCategoryInfo(category) {
+  return BLOCKER_CATEGORIES.find((c) => c.key === category) || BLOCKER_CATEGORIES[BLOCKER_CATEGORIES.length - 1];
+}
+
+// 初步關鍵字分類:只做建議,使用者選定的 category 會優先使用。
 function classifyBlocker(text) {
-  if (!text) return "跨部門";
+  if (!text) return "其他";
   const scores = {};
   BLOCKER_CATEGORIES.forEach((c) => {
     scores[c.key] = 0;
@@ -1134,43 +1234,92 @@ function classifyBlocker(text) {
     });
   });
   const best = Object.entries(scores).sort((a, b) => b[1] - a[1])[0];
-  return best[1] > 0 ? best[0] : "跨部門";
+  return best && best[1] > 0 ? best[0] : "其他";
 }
 
-// 卡點風險分析
+function parseRelatedDepartments(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.filter(Boolean);
+  return value
+    .split(/[、,，\n]/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function daysBetween(start, end = new Date()) {
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) return 0;
+  return Math.max(0, Math.ceil((endDate - startDate) / MS_PER_DAY));
+}
+
+function getBlockerDaysElapsed(blocker, now = new Date()) {
+  return daysBetween(blocker.createdAt, blocker.resolvedAt || now);
+}
+
+function getResolvedDays(historyDB) {
+  return historyDB
+    .map((h) => {
+      if (typeof h.daysToResolve === "number") return h.daysToResolve;
+      if (h.createdAt && h.resolvedAt) return daysBetween(h.createdAt, h.resolvedAt);
+      return null;
+    })
+    .filter((v) => typeof v === "number" && v >= 0);
+}
+
+function empiricalPercentile(value, arr) {
+  if (!arr.length) return null;
+  const count = arr.filter((v) => v <= value).length;
+  return Math.round((count / arr.length) * 100);
+}
+
+function blockerLevelFromPercentiles(currentDays, p75, p90, p95) {
+  if (currentDays >= p95) return { level: "critical", levelLabel: "極高風險" };
+  if (currentDays >= p90) return { level: "high", levelLabel: "高風險" };
+  if (currentDays >= p75) return { level: "medium", levelLabel: "關注中" };
+  return { level: "normal", levelLabel: "正常範圍" };
+}
+
+// 卡點風險分析:以歷史經驗分位數判定,不假設常態分佈。
 function analyzeBlockerRisk(currentDays, category, historyDB) {
-  const sameCategoryDays = historyDB
-    .filter((h) => h.category === category)
-    .map((h) => h.daysToResolve);
+  const sameCategoryHistory = historyDB.filter((h) => h.category === category);
+  const sameCategoryDays = getResolvedDays(sameCategoryHistory);
+  const allDays = getResolvedDays(historyDB);
+  const useCategory = sameCategoryDays.length >= 5;
+  const basisDays = useCategory ? sameCategoryDays : allDays;
 
-  if (sameCategoryDays.length < 3) {
-    return { hasData: false, category };
+  if (basisDays.length < 5) {
+    const level = currentDays >= DEFAULT_BLOCKER_SLA_DAYS ? "high" : "normal";
+    return {
+      hasData: false,
+      category,
+      currentDays,
+      sampleSize: basisDays.length,
+      basis: "insufficient",
+      basisLabel: "資料不足",
+      level,
+      levelLabel: currentDays >= DEFAULT_BLOCKER_SLA_DAYS ? "SLA 提醒" : "資料不足",
+      riskScore: currentDays >= DEFAULT_BLOCKER_SLA_DAYS ? 70 : 0,
+      percentile: null,
+      mean: "—",
+      std: "—",
+      median: null,
+      p75: null,
+      p90: null,
+      p95: null,
+      historyDays: [],
+      daysOverP75: "—",
+    };
   }
 
-  const mean = stats.mean(sameCategoryDays);
-  const std = stats.std(sameCategoryDays);
-  const median = stats.percentile(sameCategoryDays, 50);
-  const p75 = stats.percentile(sameCategoryDays, 75);
-  const p90 = stats.percentile(sameCategoryDays, 90);
-  const z = stats.zscore(currentDays, sameCategoryDays);
-  const pct = stats.zToPercentile(z);
-
-  let level, levelLabel;
-  if (z >= 2) {
-    level = "critical";
-    levelLabel = "極高風險";
-  } else if (z >= 1) {
-    level = "high";
-    levelLabel = "高風險";
-  } else if (z >= 0) {
-    level = "medium";
-    levelLabel = "關注中";
-  } else {
-    level = "normal";
-    levelLabel = "正常範圍";
-  }
-
-  const riskScore = Math.min(99, Math.max(0, Math.round(pct)));
+  const mean = stats.mean(basisDays);
+  const std = stats.std(basisDays);
+  const median = stats.percentile(basisDays, 50);
+  const p75 = stats.percentile(basisDays, 75);
+  const p90 = stats.percentile(basisDays, 90);
+  const p95 = stats.percentile(basisDays, 95);
+  const percentile = empiricalPercentile(currentDays, basisDays);
+  const { level, levelLabel } = blockerLevelFromPercentiles(currentDays, p75, p90, p95);
 
   return {
     hasData: true,
@@ -1181,23 +1330,55 @@ function analyzeBlockerRisk(currentDays, category, historyDB) {
     median,
     p75,
     p90,
-    z: z.toFixed(2),
-    percentile: Math.round(pct),
-    sampleSize: sameCategoryDays.length,
+    p95,
+    percentile,
+    sampleSize: basisDays.length,
+    basis: useCategory ? "category" : "company",
+    basisLabel: useCategory ? "同類歷史" : "全公司歷史",
     level,
     levelLabel,
-    riskScore,
+    riskScore: Math.min(99, Math.max(0, percentile)),
     daysOverP75: Math.max(0, currentDays - p75).toFixed(1),
+    historyDays: basisDays,
   };
 }
 
-function analyzeBlockerText(text, daysElapsed, historyDB) {
-  const category = classifyBlocker(text);
+function analyzeBlockerRecord(blocker, historyDB) {
+  const text = `${blocker.title || ""}\n${blocker.description || ""}`;
+  const category = blocker.category || classifyBlocker(text);
+  const daysElapsed = getBlockerDaysElapsed(blocker);
   return {
     ...analyzeBlockerRisk(daysElapsed, category, historyDB),
-    originalText: text,
-    categoryInfo: BLOCKER_CATEGORIES.find((c) => c.key === category),
+    originalText: blocker.description || blocker.title || "",
+    categoryInfo: getCategoryInfo(category),
+    blocker,
   };
+}
+
+function createLegacyBlockersFromReports(reports) {
+  const seededReportIds = new Set(SEED_BLOCKERS.map((b) => b.sourceReportId));
+  return reports
+    .filter((r) => r.blockers && r.blockers.trim() && !seededReportIds.has(r.id))
+    .map((r) => ({
+      id: `legacy-${r.id}`,
+      title: `${r.dept} 舊週報卡點`,
+      description: r.blockers,
+      dept: r.dept,
+      owner: r.author,
+      category: classifyBlocker(r.blockers),
+      status: "open",
+      createdAt: new Date(r.submittedAt || Date.now()).toISOString(),
+      updatedAt: new Date().toISOString(),
+      resolvedAt: null,
+      weekId: r.week || CURRENT_WEEK_ID,
+      sourceReportId: r.id,
+      sourceType: "legacyReportBlockers",
+      relatedDepartments: [],
+      caseId: "",
+      needsReview: true,
+      createdBy: r.author || "legacy",
+      updatedBy: r.author || "legacy",
+    }));
 }
 
 // ============================================================
@@ -1233,72 +1414,26 @@ function getLatestWeekDisplay(reports) {
   return `${week} (${range})`;
 }
 
-// 計算每個部門目前活躍卡點的天數(動態:從該卡點首次出現的週次推算)
-// 規則:某卡點關鍵字第一次出現於第 N 週,當前是第 M 週,則該卡點已存在 (M-N) × 7 天
-function computeBlockerDaysByDept(reports) {
-  const latestWeek = getLatestWeek(reports);
-  const latestNum = (() => {
-    const m = (latestWeek || "").match(/\d+/);
-    return m ? parseInt(m[0]) : 42;
-  })();
-
-  // 對每個部門,找它本週的卡點關鍵字最早出現在哪一週
-  const result = {};
-  const depts = ["投資研究部", "業務開發部", "資產管理部"];
-
-  depts.forEach((dept) => {
-    const latestReport = reports.find((r) => r.dept === dept && r.week === latestWeek);
-    if (!latestReport || !latestReport.blockers || !latestReport.blockers.trim()) {
-      result[dept] = 0;
-      return;
-    }
-
-    // 從本週卡點文字抓出關鍵字(每個 4 字以上的中文片段)
-    const blockerText = latestReport.blockers;
-    const keywords = (latestReport.keywords || []).filter((k) => blockerText.includes(k));
-
-    if (keywords.length === 0) {
-      result[dept] = 7; // 預設一週
-      return;
-    }
-
-    // 找這些關鍵字在該部門「最早」出現於哪一週
-    let earliestWeekNum = latestNum;
-    reports
-      .filter((r) => r.dept === dept)
-      .forEach((r) => {
-        const m = (r.week || "").match(/\d+/);
-        const wkNum = m ? parseInt(m[0]) : latestNum;
-        const fullText = `${r.cases || ""}\n${r.blockers || ""}\n${r.needHelp || ""}`;
-        const hasAnyKw = keywords.some((kw) => fullText.includes(kw));
-        if (hasAnyKw && wkNum < earliestWeekNum) {
-          earliestWeekNum = wkNum;
-        }
-      });
-
-    // 換算天數:(本週 - 最早週) × 7,至少 1 天
-    result[dept] = Math.max(1, (latestNum - earliestWeekNum) * 7);
-  });
-
-  return result;
-}
-
 // ============================================================
 // 週報異常偵測
 // 比對某部門本週活動量(協助請求、卡點)是否偏離過去 8 週歷史平均
 // 使用 z-score:當 z ≥ 1.5 時觸發警示
 // ============================================================
-function detectReportAnomaly(currentReports, activityHistory) {
+function detectReportAnomaly(currentReports, activityHistory, blockers = []) {
   const depts = ["投資研究部", "業務開發部", "資產管理部"];
   const anomalies = [];
+  const currentWeek = currentReports[0]?.week || CURRENT_WEEK_ID;
+  const openCurrentBlockers = blockers.filter(
+    (b) => b.status !== "resolved" && b.weekId === currentWeek
+  );
 
   depts.forEach((dept) => {
     const r = currentReports.find((x) => x.dept === dept);
     if (!r) return;
 
-    // 計算本週該部門的活動量(簡化:用內容長度估)
+    // 計算本週該部門的活動量。卡點數使用結構化 blocker 筆數,不再用標點切文字。
     const currentHelp = (r.needHelp || "").split(/[、,.。\n]/).filter((s) => s.trim()).length;
-    const currentBlockers = (r.blockers || "").split(/[、,.。\n]/).filter((s) => s.trim()).length;
+    const currentBlockers = openCurrentBlockers.filter((b) => b.dept === dept).length;
 
     // 歷史資料
     const history = activityHistory.filter((h) => h.dept === dept);
@@ -1325,12 +1460,12 @@ function detectReportAnomaly(currentReports, activityHistory) {
       anomalies.push({
         dept,
         type: "blocker",
-        typeLabel: "卡點數量異常",
+        typeLabel: "卡點筆數異常",
         currentValue: currentBlockers,
         historyMean: stats.mean(blockerHistoryArr).toFixed(1),
         z: blockerZ.toFixed(2),
         severity: blockerZ >= 2 ? "critical" : "high",
-        description: `${dept}本週回報卡點 ${currentBlockers} 項,遠高於歷史平均 ${stats.mean(blockerHistoryArr).toFixed(1)} 項`,
+        description: `${dept}本週開啟卡點 ${currentBlockers} 筆,高於歷史平均 ${stats.mean(blockerHistoryArr).toFixed(1)} 筆`,
       });
     }
   });
@@ -2242,7 +2377,7 @@ function predictTurnoverRisk(reports, handoffs) {
 // E 系列. 會議準備模組
 // 根據系統資料動態生成會議議程
 // ============================================================
-function generateMeetingAgenda(meetingType, reports, handoffs, decisions, blockerHistory) {
+function generateMeetingAgenda(meetingType, reports, handoffs, decisions, blockerHistory, blockers = []) {
   const today = new Date();
   const dayOfWeek = today.getDay();
 
@@ -2296,24 +2431,19 @@ function generateMeetingAgenda(meetingType, reports, handoffs, decisions, blocke
 
     // 2. 本週待決議題
     const deptReports = reports.filter((r) => r.week === getLatestWeek(reports));
-    const blockerDaysMap = computeBlockerDaysByDept(reports);
-    const criticalBlockers = deptReports
-      .filter((r) => r.blockers && r.blockers.trim())
-      .map((r) => ({
-        dept: r.dept,
-        text: r.blockers,
-        ...analyzeBlockerText(r.blockers, blockerDaysMap[r.dept] || 3, blockerHistory),
-      }))
-      .filter((b) => b.level === "critical" || b.level === "high");
+    const criticalBlockers = blockers
+      .filter((b) => b.status !== "resolved" && b.weekId === getLatestWeek(reports))
+      .map((b) => ({ ...b, analysis: analyzeBlockerRecord(b, blockerHistory) }))
+      .filter((b) => b.analysis.level === "critical" || b.analysis.level === "high");
 
     if (criticalBlockers.length > 0) {
       agenda.push({
         title: "高風險卡點決議",
         duration: 20,
         bullets: criticalBlockers.map((b) =>
-          `${b.dept}:${b.text.slice(0, 40)}... (z=${b.z}σ)`
+          `${b.dept}:${(b.title || b.description).slice(0, 40)}... (${b.analysis.percentile ?? "資料不足"}%)`
         ),
-        reasoning: `這些卡點 z-score ≥ 1,已超過 84% 同類歷史案件,需管理層介入`,
+        reasoning: "這些卡點已進入歷史分位數高風險區間或超過 SLA,需管理層介入",
         direction: "逐項決議:① 由誰主責 ② 預期解決時程 ③ 是否需跨部門資源",
       });
     }
@@ -2741,25 +2871,22 @@ const SectionTitle = ({ children, color = C.purple, hint }) => (
 // 管理層待決事項彙整
 // 從各種資料來源抽取「需要管理層親自處理」的事項
 // ============================================================
-function collectActionItems({ reports, handoffs, blockerHistory, decisions, topicHistory, activityHistory }) {
+function collectActionItems({ reports, handoffs, blockers, blockerHistory, decisions, topicHistory, activityHistory }) {
   const items = [];
   const deptReports = reports.filter((r) => r.week === getLatestWeek(reports));
 
-  // 1. 極高風險卡點(z >= 2)
-  const blockerDaysMap = computeBlockerDaysByDept(reports);
-  deptReports.forEach((r) => {
-    if (!r.blockers || !r.blockers.trim()) return;
-    const days = blockerDaysMap[r.dept] || 3;
-    const a = analyzeBlockerText(r.blockers, days, blockerHistory);
-    if (a.hasData && a.level === "critical") {
+  // 1. 極高風險卡點(歷史分位數 >= P95,或資料不足但超過 SLA)
+  blockers.filter((b) => b.status !== "resolved" && b.weekId === getLatestWeek(reports)).forEach((b) => {
+    const a = analyzeBlockerRecord(b, blockerHistory);
+    if (a.level === "critical" || (!a.hasData && a.level === "high")) {
       items.push({
-        id: "blocker-" + r.dept,
+        id: "blocker-" + b.id,
         type: "critical-blocker",
         priority: 1,
         icon: "🚨",
-        title: `${r.dept} 卡點極高風險`,
-        description: r.blockers,
-        meta: `已卡 ${a.currentDays} 天 · z = +${a.z}σ · 超過 ${a.percentile}% 同類案件`,
+        title: `${b.dept} 卡點需介入`,
+        description: b.description || b.title,
+        meta: `已卡 ${a.currentDays} 天 · ${a.basisLabel}${a.percentile !== null ? `第 ${a.percentile} 百分位` : "不足以計算百分位"}`,
         suggestion: "建議今日由管理層直接介入協調",
       });
     }
@@ -2843,7 +2970,7 @@ function collectActionItems({ reports, handoffs, blockerHistory, decisions, topi
 // ============================================================
 // 週會 Briefing 自動產出
 // ============================================================
-function generateWeeklyBriefing({ reports, handoffs, blockerHistory, decisions, topicHistory, actionItems }) {
+function generateWeeklyBriefing({ reports, handoffs, blockers, blockerHistory, decisions, topicHistory, actionItems }) {
   const latestWeek = getLatestWeek(reports);
   const deptReports = reports.filter((r) => r.week === latestWeek);
   const unsigned = handoffs.filter((h) => h.status === "待簽收");
@@ -2851,15 +2978,10 @@ function generateWeeklyBriefing({ reports, handoffs, blockerHistory, decisions, 
   const inProgressDec = decisions.filter((d) => d.status === "執行中");
   const completedThisMonth = decisions.filter((d) => d.status === "已完成");
 
-  const blockerDaysMap = computeBlockerDaysByDept(reports);
-  const blockerAnalyses = deptReports
-    .filter((r) => r.blockers && r.blockers.trim())
-    .map((r) => ({
-      dept: r.dept,
-      text: r.blockers,
-      ...analyzeBlockerText(r.blockers, blockerDaysMap[r.dept] || 3, blockerHistory),
-    }));
-  const criticalBlockers = blockerAnalyses.filter((b) => b.level === "critical");
+  const blockerAnalyses = blockers
+    .filter((b) => b.status !== "resolved" && b.weekId === latestWeek)
+    .map((b) => ({ ...b, analysis: analyzeBlockerRecord(b, blockerHistory) }));
+  const criticalBlockers = blockerAnalyses.filter((b) => b.analysis.level === "critical");
 
   const chronic = detectChronicTopics(
     topicHistory,
@@ -2928,7 +3050,7 @@ function generateWeeklyBriefing({ reports, handoffs, blockerHistory, decisions, 
 // ============================================================
 // Dashboard 頁面
 // ============================================================
-function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory, activityHistory, onNav, userProfile }) {
+function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, blockerHistory, decisions, topicHistory, activityHistory, onNav, userProfile }) {
   const [viewReport, setViewReport] = useState(null);
   const [viewTopic, setViewTopic] = useState(null);
   const [viewBlocker, setViewBlocker] = useState(null);
@@ -2959,8 +3081,8 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
 
   // 週報異常偵測
   const reportAnomalies = useMemo(
-    () => detectReportAnomaly(deptReports, activityHistory),
-    [deptReports, activityHistory]
+    () => detectReportAnomaly(deptReports, activityHistory, allBlockers),
+    [deptReports, activityHistory, allBlockers]
   );
 
   // 慢性議題偵測(連續 3+ 週出現)
@@ -2973,30 +3095,27 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
   const overdueDecisions = decisions.filter((d) => d.status === "逾期");
   const inProgressDecisions = decisions.filter((d) => d.status === "執行中");
 
-  // 卡點抽取 + 風險分析(text mining + 統計)
-  // 已卡天數:從報告歷史動態計算(關鍵字最早出現週次推算)
-  const blockerDaysMap = useMemo(() => computeBlockerDaysByDept(reports), [reports]);
-  const blockers = useMemo(() =>
-    deptReports
-      .filter((r) => r.blockers && r.blockers.trim())
-      .map((r) => {
-        const days = blockerDaysMap[r.dept] || 3;
-        const analysis = analyzeBlockerText(r.blockers, days, blockerHistory);
+  // 結構化卡點 + 歷史分位數風險分析
+  const activeBlockers = useMemo(() =>
+    allBlockers
+      .filter((b) => b.status !== "resolved" && b.weekId === latestWeekRaw)
+      .map((b) => {
+        const analysis = analyzeBlockerRecord(b, blockerHistory);
         return {
-          dept: r.dept,
-          text: r.blockers,
-          daysElapsed: days,
+          ...b,
+          text: b.description || b.title,
+          daysElapsed: analysis.currentDays,
           analysis,
         };
       })
       .sort((a, b) => (b.analysis.riskScore || 0) - (a.analysis.riskScore || 0)),
-    [deptReports, blockerHistory]
+    [allBlockers, latestWeekRaw, blockerHistory]
   );
 
   // 管理層待決事項(只給 admin 看)
   const actionItems = useMemo(
-    () => isAdmin ? collectActionItems({ reports, handoffs, blockerHistory, decisions, topicHistory, activityHistory }) : [],
-    [isAdmin, reports, handoffs, blockerHistory, decisions, topicHistory, activityHistory]
+    () => isAdmin ? collectActionItems({ reports, handoffs, blockers: allBlockers, blockerHistory, decisions, topicHistory, activityHistory }) : [],
+    [isAdmin, reports, handoffs, allBlockers, blockerHistory, decisions, topicHistory, activityHistory]
   );
 
   // C1. 員工關懷提醒(只給 admin)
@@ -3019,8 +3138,8 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
 
   // Briefing 文字
   const briefingText = useMemo(
-    () => isAdmin ? generateWeeklyBriefing({ reports, handoffs, blockerHistory, decisions, topicHistory, actionItems }) : "",
-    [isAdmin, reports, handoffs, blockerHistory, decisions, topicHistory, actionItems]
+    () => isAdmin ? generateWeeklyBriefing({ reports, handoffs, blockers: allBlockers, blockerHistory, decisions, topicHistory, actionItems }) : "",
+    [isAdmin, reports, handoffs, allBlockers, blockerHistory, decisions, topicHistory, actionItems]
   );
 
   // 標題客製化(依角色)
@@ -3544,7 +3663,7 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
 
           const cards = [
             { label: "進行中案件", value: deptReports.reduce((s, r) => s + (r.cases || "").split(/[•\n]/).filter(c => c.trim()).length, 0), color: C.text, series: caseSeries, lineColor: C.accent },
-            { label: "跨部門卡點", value: blockers.length, color: C.warn, series: blockerSeries, lineColor: C.warn },
+            { label: "跨部門卡點", value: activeBlockers.length, color: C.warn, series: blockerSeries, lineColor: C.warn },
             { label: "未閉環交接", value: unsigned.length, color: C.danger, series: handoffSeries, lineColor: C.danger },
             { label: "週報完成率", value: `${deptReports.length}/3`, color: C.success, series: reportSeries, lineColor: C.success },
           ];
@@ -3618,15 +3737,15 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
             卡點警示
           </SectionTitle>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {blockers.length === 0 ? (
+            {activeBlockers.length === 0 ? (
               <div style={{ fontSize: 12, color: C.textLight }}>本週無卡點</div>
             ) : (
-              blockers.map((b, i) => {
+              activeBlockers.map((b) => {
                 const a = b.analysis;
                 const color = a.hasData ? riskLevelColor(a.level) : { fg: "#7A4900", bg: C.warnLight };
                 return (
                   <div
-                    key={i}
+                    key={b.id}
                     onClick={() => setViewBlocker(b)}
                     style={{
                       padding: "10px 12px",
@@ -3655,29 +3774,27 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
                         </div>
                       )}
                     </div>
+                    <div style={{ fontWeight: 600, marginBottom: 3 }}>{b.title}</div>
                     <div style={{ marginBottom: 6 }}>{b.text}</div>
-                    {a.hasData && (
-                      <div style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        paddingTop: 6,
-                        borderTop: "1px solid " + color.fg + "20",
-                        fontSize: 11,
-                      }}>
-                        <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                          <Activity size={11} />
-                          已 {a.currentDays} 天
-                        </span>
-                        <span>類別:{a.category}</span>
-                        <span>
-                          歷史平均 {a.mean} 天
-                        </span>
-                        <span style={{ marginLeft: "auto", fontWeight: 600 }}>
-                          z = {a.z > 0 ? "+" : ""}{a.z}σ
-                        </span>
-                      </div>
-                    )}
+                    <div style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      paddingTop: 6,
+                      borderTop: "1px solid " + color.fg + "20",
+                      fontSize: 11,
+                      flexWrap: "wrap",
+                    }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                        <Activity size={11} />
+                        已 {a.currentDays} 天
+                      </span>
+                      <span>類別:{a.categoryInfo.label}</span>
+                      <span>{a.basisLabel}</span>
+                      <span style={{ marginLeft: "auto", fontWeight: 600 }}>
+                        {a.percentile !== null ? `第 ${a.percentile} 百分位` : "資料不足"}
+                      </span>
+                    </div>
                   </div>
                 );
               })
@@ -4065,9 +4182,7 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
         {viewBlocker && viewBlocker.analysis && (() => {
           const a = viewBlocker.analysis;
           const color = a.hasData ? riskLevelColor(a.level) : { fg: "#7A4900", bg: C.warnLight };
-          const categoryDays = blockerHistory
-            .filter((h) => h.category === a.category)
-            .map((h) => h.daysToResolve);
+          const categoryDays = a.historyDays || [];
           const hist = stats.histogram(categoryDays, 7);
           const maxCount = Math.max(...hist.map((h) => h.count), 1);
 
@@ -4092,7 +4207,7 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
               <div style={{ marginBottom: 18 }}>
                 <div style={{ fontSize: 11, color: C.textLight, marginBottom: 6, fontWeight: 500 }}>
                   <BarChart3 size={11} style={{ display: "inline", verticalAlign: "middle", marginRight: 4 }} />
-                  系統自動分類(text mining)
+                  初步關鍵字分類
                 </div>
                 <div style={{
                   padding: "10px 14px",
@@ -4108,7 +4223,7 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
                       {a.categoryInfo.label}
                     </div>
                     <div style={{ fontSize: 11, color: C.textMid, marginTop: 2 }}>
-                      同類歷史樣本數 n = {a.sampleSize}
+                      {a.basisLabel}樣本數 n = {a.sampleSize}
                     </div>
                   </div>
                   <div style={{ display: "flex", gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
@@ -4137,15 +4252,15 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
                         {a.levelLabel}
                       </div>
                       <div style={{ fontSize: 12, color: color.fg, opacity: 0.8, marginTop: 2 }}>
-                        超過 {a.percentile}% 歷史同類案件
+                        {a.percentile !== null ? `第 ${a.percentile} 百分位` : "歷史資料不足,改用 SLA 提醒"}
                       </div>
                     </div>
                     <div style={{ textAlign: "right" }}>
                       <div style={{ fontSize: 28, fontWeight: 700, color: color.fg, lineHeight: 1 }}>
-                        {a.z > 0 ? "+" : ""}{a.z}σ
+                        {a.percentile !== null ? `P${a.percentile}` : `${a.currentDays}d`}
                       </div>
                       <div style={{ fontSize: 11, color: color.fg, opacity: 0.8, marginTop: 4 }}>
-                        z-score
+                        經驗百分位
                       </div>
                     </div>
                   </div>
@@ -4164,9 +4279,9 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
                 }}>
                   {[
                     { label: "已卡天數", value: a.currentDays + " 天", highlight: true },
-                    { label: "歷史平均", value: a.mean + " 天" },
-                    { label: "標準差", value: a.std + " 天" },
-                    { label: "中位數", value: a.median + " 天" },
+                    { label: "參照平均", value: a.hasData ? a.mean + " 天" : "—" },
+                    { label: "P75", value: a.hasData ? a.p75.toFixed(1) + " 天" : "—" },
+                    { label: "P90", value: a.hasData ? a.p90.toFixed(1) + " 天" : "—" },
                   ].map((s) => (
                     <div key={s.label} style={{
                       padding: "8px 10px",
@@ -4248,9 +4363,10 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
               </div>
 
               {/* 分位數標記 */}
+              {a.hasData && (
               <div style={{ marginBottom: 18 }}>
                 <div style={{ fontSize: 11, color: C.textLight, marginBottom: 8, fontWeight: 500 }}>
-                  同類案件分位數對照
+                  {a.basisLabel}分位數對照
                 </div>
                 <div style={{ position: "relative", padding: "28px 0 20px" }}>
                   {/* 基礎線 */}
@@ -4266,6 +4382,7 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
                     { label: "P50 (中位)", value: a.median, pos: 50 },
                     { label: "P75", value: a.p75, pos: 75 },
                     { label: "P90", value: a.p90, pos: 90 },
+                    { label: "P95", value: a.p95, pos: 95 },
                   ].map((m) => (
                     <div key={m.label} style={{
                       position: "absolute",
@@ -4305,6 +4422,7 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
                   </div>
                 </div>
               </div>
+              )}
 
               {/* 建議 */}
               <div style={{
@@ -4318,12 +4436,40 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
                 <Info size={14} color={C.accent} style={{ marginTop: 2, flexShrink: 0 }} />
                 <div style={{ fontSize: 12, color: C.accent, lineHeight: 1.7 }}>
                   <strong>系統建議:</strong>
-                  {a.level === "critical" && `此卡點已超過 98% 同類歷史案件,強烈建議今日內由管理層介入協調。根據過去資料,繼續拖延將使解決難度顯著上升。`}
-                  {a.level === "high" && `此卡點已超過 84% 同類歷史案件,建議於本週內完成處理。類似卡點通常在此區間後會快速惡化。`}
-                  {a.level === "medium" && `此卡點進入關注區間,建議本週內跟進處理,避免進入高風險區間。`}
-                  {a.level === "normal" && `此卡點目前在歷史正常範圍內,持續關注即可。`}
+                  {!a.hasData && `此卡點歷史樣本不足,目前僅依 ${DEFAULT_BLOCKER_SLA_DAYS} 天 SLA 提醒主管確認處理狀態。`}
+                  {a.hasData && a.level === "critical" && `此卡點已達 ${a.basisLabel} P95 以上,建議今日內由管理層介入協調。`}
+                  {a.hasData && a.level === "high" && `此卡點已達 ${a.basisLabel} P90 以上,建議本週內確認負責人與解決時程。`}
+                  {a.hasData && a.level === "medium" && `此卡點已超過 P75,建議本週內跟進處理,避免進入高風險區間。`}
+                  {a.hasData && a.level === "normal" && `此卡點目前在歷史正常範圍內,持續關注即可。`}
                 </div>
               </div>
+              {viewBlocker.status !== "resolved" && (
+                <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end" }}>
+                  <Button
+                    variant="primary"
+                    icon={Check}
+                    size="sm"
+                    onClick={() => {
+                      const now = new Date().toISOString();
+                      setBlockers((prev) => prev.map((item) =>
+                        item.id === viewBlocker.id
+                          ? {
+                              ...item,
+                              status: "resolved",
+                              resolvedAt: now,
+                              updatedAt: now,
+                              updatedBy: userProfile?.email || userProfile?.displayName || "current-user",
+                              daysToResolve: getBlockerDaysElapsed({ ...item, resolvedAt: now }),
+                            }
+                          : item
+                      ));
+                      setViewBlocker(null);
+                    }}
+                  >
+                    標記已解決
+                  </Button>
+                </div>
+              )}
             </div>
           );
         })()}
@@ -4502,7 +4648,7 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
                 <strong>系統建議:</strong>
                 {viewAnomaly.type === "help"
                   ? `${viewAnomaly.dept}本週協助請求量異常增加,可能代表:(1) 該部門遇到需跨部門解決的系統性問題 (2) 內部資源不足 (3) 有新類型案件進入。建議管理層與該部門主管一對一溝通釐清。`
-                  : `${viewAnomaly.dept}本週卡點數量異常增加,可能代表該部門工作流程出現瓶頸。建議召開快速協調會釐清各卡點的根本原因。`}
+                  : `${viewAnomaly.dept}本週卡點筆數異常增加,可能代表該部門工作流程出現瓶頸。建議召開快速協調會釐清各卡點的根本原因。`}
               </div>
             </div>
           );
@@ -4576,14 +4722,22 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
 // ============================================================
 // 週報填寫
 // ============================================================
-function WeeklyReport({ reports, setReports }) {
+function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userProfile }) {
   const [dept, setDept] = useState("投資研究部");
   const [author, setAuthor] = useState("");
   const [cases, setCases] = useState("");
-  const [blockers, setBlockers] = useState("");
   const [needHelp, setNeedHelp] = useState("");
   const [nextWeek, setNextWeek] = useState("");
   const [justSaved, setJustSaved] = useState(false);
+  const emptyBlockerDraft = () => ({
+    title: "",
+    description: "",
+    category: "其他",
+    relatedDepartments: "",
+    caseId: "",
+    categoryTouched: false,
+  });
+  const [blockerDrafts, setBlockerDrafts] = useState([emptyBlockerDraft()]);
 
   const extractKeywords = (text) => {
     const pool = ["A 新創", "B 公司", "C 標的", "D 客戶", "E 標的", "FinTech", "SaaS", "Pre-A", "A 輪", "Q4", "募資", "盡調", "NDA", "法遵", "競品", "估值", "產業分析"];
@@ -4592,27 +4746,79 @@ function WeeklyReport({ reports, setReports }) {
 
   const submit = () => {
     if (!cases.trim() || !author.trim()) return;
-    const full = `${cases}\n${blockers}\n${needHelp}\n${nextWeek}`;
     const latestWeek = getLatestWeek(reports);
+    const validBlockers = blockerDrafts.filter((b) => b.title.trim() || b.description.trim());
+    const blockerSummary = validBlockers
+      .map((b) => `${b.title.trim() || "未命名卡點"}:${(b.description || "").trim()}`)
+      .join("\n");
+    const full = `${cases}\n${blockerSummary}\n${needHelp}\n${nextWeek}`;
+    const reportId = "r" + Date.now();
+    const now = new Date().toISOString();
+    const blockerIds = validBlockers.map((_, idx) => `${reportId}-b${idx + 1}`);
     const newReport = {
-      id: "r" + Date.now(),
+      id: reportId,
       dept,
       week: latestWeek,
+      weekId: latestWeek,
       author,
-      submittedAt: new Date().toISOString().slice(0, 16).replace("T", " "),
+      submittedAt: now.slice(0, 16).replace("T", " "),
       cases,
-      blockers,
+      blockers: blockerSummary,
+      blockerIds,
       needHelp,
       nextWeek,
       keywords: extractKeywords(full),
     };
+    const newBlockers = validBlockers.map((b, idx) => {
+      const text = `${b.title}\n${b.description}`;
+      return {
+        id: blockerIds[idx],
+        title: b.title.trim() || b.description.trim().slice(0, 28) || "未命名卡點",
+        description: b.description.trim(),
+        dept,
+        owner: author,
+        category: b.category || classifyBlocker(text),
+        status: "open",
+        createdAt: now,
+        updatedAt: now,
+        resolvedAt: null,
+        weekId: latestWeek,
+        sourceReportId: reportId,
+        sourceType: "weeklyReport",
+        relatedDepartments: parseRelatedDepartments(b.relatedDepartments),
+        caseId: b.caseId.trim(),
+        needsReview: false,
+        createdBy: userProfile?.email || author,
+        updatedBy: userProfile?.email || author,
+      };
+    });
     setReports([...reports.filter((r) => !(r.dept === dept && r.week === latestWeek)), newReport]);
+    if (setBlockers) {
+      setBlockers([
+        ...blockers.filter((b) => !(b.dept === dept && b.weekId === latestWeek && b.sourceType === "weeklyReport")),
+        ...newBlockers,
+      ]);
+    }
     setCases("");
-    setBlockers("");
     setNeedHelp("");
     setNextWeek("");
+    setBlockerDrafts([emptyBlockerDraft()]);
     setJustSaved(true);
     setTimeout(() => setJustSaved(false), 2500);
+  };
+
+  const updateBlockerDraft = (idx, field, value) => {
+    setBlockerDrafts((prev) => prev.map((draft, i) => {
+      if (i !== idx) return draft;
+      if (field === "category") {
+        return { ...draft, category: value, categoryTouched: true };
+      }
+      const next = { ...draft, [field]: value };
+      if ((field === "title" || field === "description") && !draft.categoryTouched) {
+        next.category = classifyBlocker(`${next.title}\n${next.description}`);
+      }
+      return next;
+    }));
   };
 
   const inputStyle = {
@@ -4687,13 +4893,100 @@ function WeeklyReport({ reports, setReports }) {
 
         <div style={{ marginBottom: 14 }}>
           <label style={labelStyle}>② 遇到的卡點</label>
-          <textarea
-            rows={2}
-            value={blockers}
-            onChange={(e) => setBlockers(e.target.value)}
-            placeholder="描述目前遇到的阻礙(若無可留空)"
-            style={inputStyle}
-          />
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {blockerDrafts.map((draft, idx) => (
+              <div
+                key={idx}
+                style={{
+                  padding: 12,
+                  border: "1px solid " + C.borderLight,
+                  borderRadius: 8,
+                  background: C.bg,
+                }}
+              >
+                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 10, marginBottom: 10 }}>
+                  <input
+                    type="text"
+                    value={draft.title}
+                    onChange={(e) => updateBlockerDraft(idx, "title", e.target.value)}
+                    placeholder="卡點標題,例如 A 新創財報補件延遲"
+                    style={inputStyle}
+                  />
+                  <select
+                    value={draft.category}
+                    onChange={(e) => updateBlockerDraft(idx, "category", e.target.value)}
+                    style={{ ...inputStyle, cursor: "pointer" }}
+                  >
+                    {BLOCKER_CATEGORIES.map((cat) => (
+                      <option key={cat.key} value={cat.key}>{cat.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <textarea
+                  rows={2}
+                  value={draft.description}
+                  onChange={(e) => updateBlockerDraft(idx, "description", e.target.value)}
+                  placeholder="補充目前卡住原因、等待誰、需要什麼資料"
+                  style={{ ...inputStyle, marginBottom: 10 }}
+                />
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 10, alignItems: "center" }}>
+                  <input
+                    type="text"
+                    value={draft.caseId}
+                    onChange={(e) => updateBlockerDraft(idx, "caseId", e.target.value)}
+                    placeholder="關聯案件 ID/名稱"
+                    style={inputStyle}
+                  />
+                  <input
+                    type="text"
+                    value={draft.relatedDepartments}
+                    onChange={(e) => updateBlockerDraft(idx, "relatedDepartments", e.target.value)}
+                    placeholder="關聯部門,可用逗號分隔"
+                    style={inputStyle}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setBlockerDrafts((prev) => prev.length <= 1 ? [emptyBlockerDraft()] : prev.filter((_, i) => i !== idx))}
+                    style={{
+                      border: "1px solid " + C.border,
+                      background: C.surface,
+                      borderRadius: 6,
+                      padding: "8px 10px",
+                      cursor: "pointer",
+                      color: C.textMid,
+                    }}
+                    title="移除此筆卡點"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                <div style={{ fontSize: 10, color: C.textLight, marginTop: 8 }}>
+                  系統只做初步關鍵字分類,可手動調整分類後再送出。
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => setBlockerDrafts((prev) => [...prev, emptyBlockerDraft()])}
+              style={{
+                border: "1px dashed " + C.border,
+                background: C.surface,
+                borderRadius: 8,
+                padding: "9px 12px",
+                cursor: "pointer",
+                color: C.accent,
+                fontWeight: 600,
+                fontFamily: "inherit",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+              }}
+            >
+              <Plus size={14} />
+              新增一筆卡點
+            </button>
+          </div>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 18 }}>
@@ -5362,7 +5655,7 @@ function History({ history }) {
 // ============================================================
 // 卡點統計分析頁面
 // ============================================================
-function BlockerAnalytics({ blockerHistory, reports }) {
+function BlockerAnalytics({ blockerHistory, blockers = [], reports = [] }) {
   // 每個類別的統計摘要
   const categorySummary = BLOCKER_CATEGORIES.map((cat) => {
     const items = blockerHistory.filter((h) => h.category === cat.key);
@@ -5385,15 +5678,12 @@ function BlockerAnalytics({ blockerHistory, reports }) {
   const totalCount = blockerHistory.length;
   const overallMean = stats.mean(blockerHistory.map((h) => h.daysToResolve));
 
-  // 當前週報中的活躍卡點(做對照)
-  const deptReports = reports.filter((r) => r.week === getLatestWeek(reports));
-  const blockerDaysMap = computeBlockerDaysByDept(reports);
-  const activeBlockers = deptReports
-    .filter((r) => r.blockers && r.blockers.trim())
-    .map((r) => {
-      const days = blockerDaysMap[r.dept] || 3;
-      return analyzeBlockerText(r.blockers, days, blockerHistory);
-    });
+  // 當前活躍卡點:改讀單筆 blocker,天數由 createdAt/resolvedAt 計算。
+  const latestWeek = getLatestWeek(reports);
+  const activeBlockers = blockers
+    .filter((b) => b.status !== "resolved" && (!latestWeek || b.weekId === latestWeek))
+    .map((b) => analyzeBlockerRecord(b, blockerHistory))
+    .sort((a, b) => (b.riskScore || 0) - (a.riskScore || 0));
 
   return (
     <div style={{ padding: "24px 28px", maxWidth: 980 }}>
@@ -5403,7 +5693,7 @@ function BlockerAnalytics({ blockerHistory, reports }) {
         </div>
         <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>卡點統計分析</h1>
         <div style={{ fontSize: 13, color: C.textMid, marginTop: 4 }}>
-          基於歷史 {totalCount} 筆已解決卡點的描述統計與異常檢測
+          基於歷史 {totalCount} 筆已解決卡點的分位數式管理提醒
         </div>
       </div>
 
@@ -5413,7 +5703,7 @@ function BlockerAnalytics({ blockerHistory, reports }) {
           { label: "歷史樣本總數", value: totalCount },
           { label: "平均解決天數", value: overallMean.toFixed(1) + " 天" },
           { label: "分類類別數", value: BLOCKER_CATEGORIES.length },
-          { label: "當前活躍卡點", value: activeBlockers.length },
+          { label: "當前 open 卡點", value: activeBlockers.length },
         ].map((s) => (
           <Card key={s.label} style={{ padding: "14px 16px" }}>
             <div style={{ fontSize: 11, color: C.textLight, marginBottom: 4 }}>{s.label}</div>
@@ -5531,8 +5821,7 @@ function BlockerAnalytics({ blockerHistory, reports }) {
           <SectionTitle color={C.danger}>當前活躍卡點 vs 歷史分佈</SectionTitle>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {activeBlockers.map((a, i) => {
-              if (!a.hasData) return null;
-              const color = riskLevelColor(a.level);
+              const color = a.hasData ? riskLevelColor(a.level) : { fg: "#7A4900", bg: C.warnLight };
               return (
                 <div key={i} style={{
                   padding: "12px 14px",
@@ -5542,7 +5831,7 @@ function BlockerAnalytics({ blockerHistory, reports }) {
                 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: color.fg }}>
-                      {a.categoryInfo.label}:{a.originalText.slice(0, 30)}{a.originalText.length > 30 ? "..." : ""}
+                      {a.categoryInfo.label}:{(a.blocker?.title || a.originalText).slice(0, 30)}{(a.blocker?.title || a.originalText).length > 30 ? "..." : ""}
                     </div>
                     <Pill tone={a.level === "critical" ? "danger" : a.level === "high" ? "warn" : "teal"}>
                       {a.levelLabel}
@@ -5556,9 +5845,9 @@ function BlockerAnalytics({ blockerHistory, reports }) {
                     color: color.fg,
                   }}>
                     <div>已卡 <strong>{a.currentDays}</strong> 天</div>
-                    <div>歷史均值 {a.mean} 天</div>
-                    <div>z-score <strong>{a.z > 0 ? "+" : ""}{a.z}σ</strong></div>
-                    <div>超過 <strong>{a.percentile}%</strong> 同類案件</div>
+                    <div>{a.basisLabel}</div>
+                    <div>{a.hasData ? <>P75 / P90 <strong>{a.p75.toFixed(1)} / {a.p90.toFixed(1)}</strong></> : "樣本不足"}</div>
+                    <div>{a.percentile !== null ? <>第 <strong>{a.percentile}%</strong> 百分位</> : "僅 SLA 提醒"}</div>
                   </div>
                 </div>
               );
@@ -5572,20 +5861,20 @@ function BlockerAnalytics({ blockerHistory, reports }) {
         <SectionTitle color={C.textMid}>分析方法論</SectionTitle>
         <div style={{ fontSize: 12, color: C.textMid, lineHeight: 1.8 }}>
           <div style={{ marginBottom: 10 }}>
-            <strong style={{ color: C.text }}>① 分類(text mining):</strong>
-            卡點文字使用關鍵字比對分類至五大類別 —— 法遵審核、資金調度、資料取得、跨部門協調、決策等待。
+            <strong style={{ color: C.text }}>① 初步關鍵字分類:</strong>
+            系統依關鍵字建議分類,使用者可在週報中手動覆蓋；此處不是 NLP 或正式語意模型。
           </div>
           <div style={{ marginBottom: 10 }}>
-            <strong style={{ color: C.text }}>② 統計參照:</strong>
-            系統從 database 讀取同類歷史已解決卡點,計算平均 μ、標準差 σ、中位數、P75、P90 等描述統計量。
+            <strong style={{ color: C.text }}>② 歷史參照:</strong>
+            系統從 database 讀取已解決卡點,優先使用同類歷史；同類少於 5 筆時改用全公司歷史。
           </div>
           <div style={{ marginBottom: 10 }}>
-            <strong style={{ color: C.text }}>③ 異常檢測(z-score):</strong>
-            z = (當前天數 − μ) / σ,用以衡量當前卡點偏離歷史平均的程度,並透過常態分佈 CDF 轉換為百分位。
+            <strong style={{ color: C.text }}>③ 經驗百分位:</strong>
+            直接計算「歷史已解決卡點中,daysToResolve 小於等於目前已卡天數的比例」,不假設常態分佈。
           </div>
           <div>
             <strong style={{ color: C.text }}>④ 風險等級判定:</strong>
-            z ≥ 2 為極高風險、z ≥ 1 為高風險、z ≥ 0 為關注中、z &lt; 0 為正常範圍。Dashboard 按 z 分數降序呈現,使管理層可依風險優先處理。
+            低於 P75 為正常、P75-P90 為關注、P90-P95 為高風險、P95 以上為極高風險；資料不足時只用 SLA 提醒。
           </div>
         </div>
       </Card>
@@ -7045,7 +7334,7 @@ function OrgAnalytics({ reports, activityHistory }) {
 // ============================================================
 // E 系列. 會議準備頁
 // ============================================================
-function MeetingPrep({ reports, handoffs, decisions, blockerHistory, customMeetings, setCustomMeetings, meetingHistory, setMeetingHistory }) {
+function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = [], customMeetings, setCustomMeetings, meetingHistory, setMeetingHistory }) {
   const [selectedMeeting, setSelectedMeeting] = useState("weekly");
   const [showAgenda, setShowAgenda] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -7083,7 +7372,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, customMeeti
 
   const currentMeeting = useMemo(() => {
     if (isPredefined) {
-      return generateMeetingAgenda(selectedMeeting, reports, handoffs, decisions, blockerHistory);
+      return generateMeetingAgenda(selectedMeeting, reports, handoffs, decisions, blockerHistory, blockers);
     }
     if (customMeetingData) {
       // 自訂會議的議程
@@ -7117,7 +7406,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, customMeeti
       };
     }
     return null;
-  }, [selectedMeeting, reports, handoffs, decisions, blockerHistory, isPredefined, customMeetingData]);
+  }, [selectedMeeting, reports, handoffs, decisions, blockerHistory, blockers, isPredefined, customMeetingData]);
 
   // 新增會議
   const handleAddMeeting = () => {
@@ -7202,7 +7491,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, customMeeti
             const isCustom = m.isCustom;
             let hoursUntil = 0;
             if (!isCustom) {
-              const meetingData = generateMeetingAgenda(m.id, reports, handoffs, decisions, blockerHistory);
+              const meetingData = generateMeetingAgenda(m.id, reports, handoffs, decisions, blockerHistory, blockers);
               hoursUntil = meetingData?.hoursUntil || 0;
             }
             const urgency = isCustom ? null : (hoursUntil < 24 ? "imminent" : hoursUntil < 72 ? "soon" : "later");
@@ -7810,6 +8099,7 @@ export default function App() {
   const [reports, setReports] = useState(SEED_REPORTS);
   const [handoffs, setHandoffs] = useState(SEED_HANDOFFS);
   const [decisions, setDecisions] = useState(SEED_DECISIONS);
+  const [blockers, setBlockers] = useState(SEED_BLOCKERS);
   const [customMeetings, setCustomMeetings] = useState([]);
   const [meetingHistory, setMeetingHistory] = useState([]);
   const [history] = useState(SEED_HISTORY);
@@ -7837,16 +8127,18 @@ export default function App() {
     (async () => {
       setSyncStatus("syncing");
       try {
-        const [r, h, d, cm, mh] = await Promise.all([
+        const [r, h, d, b, cm, mh] = await Promise.all([
           fetchCollection("reports", SEED_REPORTS),
           fetchCollection("handoffs", SEED_HANDOFFS),
           fetchCollection("decisions", SEED_DECISIONS),
+          fetchDocumentCollection("blockers", []),
           fetchCollection("customMeetings", []),
           fetchCollection("meetingHistory", []),
         ]);
         setReports(r);
         setHandoffs(h);
         setDecisions(d);
+        setBlockers(b.length ? b : [...SEED_BLOCKERS, ...createLegacyBlockersFromReports(r)]);
         setCustomMeetings(cm);
         setMeetingHistory(mh);
         setSyncStatus("idle");
@@ -7889,6 +8181,15 @@ export default function App() {
 
   useEffect(() => {
     if (dataLoaded && authUser) {
+      setSyncStatus("syncing");
+      saveDocumentCollection("blockers", blockers).then((ok) =>
+        setSyncStatus(ok ? "idle" : "error")
+      );
+    }
+  }, [blockers, dataLoaded, authUser]);
+
+  useEffect(() => {
+    if (dataLoaded && authUser) {
       saveCollection("customMeetings", customMeetings);
     }
   }, [customMeetings, dataLoaded, authUser]);
@@ -7910,6 +8211,7 @@ export default function App() {
       setReports(SEED_REPORTS);
       setHandoffs(SEED_HANDOFFS);
       setDecisions(SEED_DECISIONS);
+      setBlockers(SEED_BLOCKERS);
     }
   };
 
@@ -7922,14 +8224,16 @@ export default function App() {
   const handleRefresh = async () => {
     if (!authUser) return;
     setSyncStatus("syncing");
-    const [r, h, d] = await Promise.all([
+    const [r, h, d, b] = await Promise.all([
       fetchCollection("reports", SEED_REPORTS),
       fetchCollection("handoffs", SEED_HANDOFFS),
       fetchCollection("decisions", SEED_DECISIONS),
+      fetchDocumentCollection("blockers", []),
     ]);
     setReports(r);
     setHandoffs(h);
     setDecisions(d);
+    setBlockers(b.length ? b : [...SEED_BLOCKERS, ...createLegacyBlockersFromReports(r)]);
     setSyncStatus("idle");
   };
 
@@ -8243,6 +8547,8 @@ export default function App() {
         {currentTab === "dashboard" && <Dashboard
           reports={reports}
           handoffs={handoffs}
+          blockers={blockers}
+          setBlockers={setBlockers}
           blockerHistory={blockerHistory}
           decisions={decisions}
           topicHistory={topicHistory}
@@ -8250,18 +8556,19 @@ export default function App() {
           onNav={navigateTo}
           userProfile={userProfile}
         />}
-        {currentTab === "report" && <WeeklyReport reports={reports} setReports={setReports} />}
+        {currentTab === "report" && <WeeklyReport reports={reports} setReports={setReports} blockers={blockers} setBlockers={setBlockers} userProfile={userProfile} />}
         {currentTab === "handoff" && <Handoff handoffs={handoffs} setHandoffs={setHandoffs} focusId={focusHandoffId} />}
         {currentTab === "decisions" && <Decisions decisions={decisions} setDecisions={setDecisions} />}
         {currentTab === "employees" && <EmployeeLoad reports={reports} handoffs={handoffs} decisions={decisions} />}
         {currentTab === "history" && <History history={history} />}
-        {currentTab === "analytics" && <BlockerAnalytics blockerHistory={blockerHistory} reports={reports} />}
+        {currentTab === "analytics" && <BlockerAnalytics blockerHistory={blockerHistory} blockers={blockers} reports={reports} />}
         {currentTab === "orgnetwork" && <OrgAnalytics reports={reports} activityHistory={activityHistory} />}
         {currentTab === "meetings" && <MeetingPrep
           reports={reports}
           handoffs={handoffs}
           decisions={decisions}
           blockerHistory={blockerHistory}
+          blockers={blockers}
           customMeetings={customMeetings}
           setCustomMeetings={setCustomMeetings}
           meetingHistory={meetingHistory}

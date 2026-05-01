@@ -156,14 +156,41 @@ project/
 ## 🎯 Demo 操作建議流程
 
 1. **登入**(`admin@test.com` / `test1234`)
-2. **Dashboard** 一覽:統計卡 → 共同議題 → 卡點警示(z-score)→ 系統性異常 → 決策追蹤
+2. **Dashboard** 一覽:統計卡 → 共同議題 → 卡點警示(歷史分位數)→ 系統性異常 → 決策追蹤
 3. **點任一卡點** → 看完整統計分析(直方圖、分位數、系統建議)
 4. **週報填寫** → 當場填一筆 → 回 Dashboard 看數字即時變化
 5. **案件交接** → 故意漏填欄位 → 按鈕變灰
 6. **決策追蹤** → 看逾期決策 → 新增一個決策
 7. **員工負載** → 點過載員工 → 看負載組成
-8. **卡點分析** → 看歷史 60 筆統計 + 直方圖
+8. **卡點分析** → 看 demo seed 右偏歷史資料 + 直方圖
 9. **歷史搜尋** → 打 FinTech → 點進案件看完整始末
+
+---
+
+## 📌 卡點分析重構說明
+
+這版已把卡點分析從「週報文字 + 推算天數 + 常態分佈 z-score」改成「單筆 blocker 資料 + createdAt/resolvedAt 時間戳 + 歷史經驗分位數」。
+
+- 週報可新增 0 到多筆卡點,不再把整段文字當成一個卡點。
+- 卡點會寫入 `companies/{companyId}/blockers/{blockerId}`。
+- 每筆卡點包含 `title`, `description`, `dept`, `owner`, `category`, `status`, `createdAt`, `updatedAt`, `resolvedAt`, `weekId`, `sourceReportId`, `relatedDepartments`, `caseId`。
+- 未解決卡點用 `today - createdAt` 算已卡天數；已解決卡點用 `resolvedAt - createdAt` 算解決天數。
+- 風險等級用歷史分位數判定:P75 以下正常、P75-P90 關注、P90-P95 高風險、P95 以上極高風險。
+- 同類歷史少於 5 筆時改用全公司歷史；全公司也不足 5 筆時只顯示資料不足與 SLA 提醒,不輸出假百分位。
+- 分類只是「初步關鍵字分類」,可人工覆蓋；不是 NLP,也不是正式風控或績效模型。
+- Demo 歷史卡點是固定右偏範例資料,用來展示統計介面,不是企業真實資料。
+
+### Firestore rules 範本
+
+目前專案仍是 React + Firebase prototype,正式導入前應再做後端不可竄改 audit log。臨時測試可用較寬鬆規則,但若要限制 blockers collection,可參考:
+
+```js
+match /companies/{companyId}/blockers/{blockerId} {
+  allow read, write: if request.auth != null;
+}
+```
+
+正式版應再依 `users`、`roles`、`departments`、`managerRelations` 限制讀寫範圍。
 
 ---
 

@@ -17,6 +17,7 @@ import {
   setDoc,
   collection,
   getDocs,
+  writeBatch,
 } from "firebase/firestore";
 
 // 從 Firebase Console 取得的設定
@@ -81,6 +82,50 @@ export const saveCollection = async (collectionName, value) => {
     return true;
   } catch (err) {
     console.error(`saveCollection(${collectionName}) failed:`, err);
+    return false;
+  }
+};
+
+// ============================================================
+// Firestore 單筆文件 collection 存取
+// 用於 blockers 等需要單筆查詢、單筆權限與避免整包覆蓋的資料
+// 路徑: companies/{companyId}/{collectionName}/{documentId}
+// ============================================================
+export const fetchDocumentCollection = async (collectionName, fallback = []) => {
+  try {
+    const ref = collection(db, "companies", COMPANY_ID, collectionName);
+    const snap = await getDocs(ref);
+    const items = snap.docs.map((item) => ({ id: item.id, ...item.data() }));
+    return items.length ? items : fallback;
+  } catch (err) {
+    console.error(`fetchDocumentCollection(${collectionName}) failed:`, err);
+    return fallback;
+  }
+};
+
+export const saveDocumentCollection = async (collectionName, value) => {
+  try {
+    const ref = collection(db, "companies", COMPANY_ID, collectionName);
+    const snap = await getDocs(ref);
+    const batch = writeBatch(db);
+    const nextIds = new Set(value.map((item) => item.id).filter(Boolean));
+
+    snap.docs.forEach((item) => {
+      if (!nextIds.has(item.id)) {
+        batch.delete(item.ref);
+      }
+    });
+
+    value.forEach((item) => {
+      if (!item.id) return;
+      const itemRef = doc(db, "companies", COMPANY_ID, collectionName, item.id);
+      batch.set(itemRef, item, { merge: true });
+    });
+
+    await batch.commit();
+    return true;
+  } catch (err) {
+    console.error(`saveDocumentCollection(${collectionName}) failed:`, err);
     return false;
   }
 };
