@@ -3,16 +3,17 @@ import { login } from "./firebase";
 import { LogIn, AlertCircle, Loader2 } from "lucide-react";
 
 const C = {
-  bg: "#FAFAF7",
+  bg: "#F8F6F0",
   surface: "#FFFFFF",
-  border: "#E8E6DD",
-  text: "#1A1815",
-  textMid: "#6B6860",
-  textLight: "#9B9890",
-  accent: "#1F4E79",
-  accentLight: "#DEEBF7",
-  danger: "#A32D2D",
-  dangerLight: "#FCEBEB",
+  border: "#D8D5CC",
+  text: "#2C2826",
+  textMid: "#6E6862",
+  textLight: "#A09B92",
+  accent: "#3D4A5C",
+  accentLight: "#E5E8EE",
+  highlight: "#B85450",
+  danger: "#8C3A3A",
+  dangerLight: "#F2E2DD",
 };
 
 export default function Login() {

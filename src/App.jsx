@@ -21,6 +21,7 @@ import {
   Flame,
   Info,
   Activity,
+  Calendar,
   LogOut,
   Cloud,
   CloudOff,
@@ -1200,6 +1201,89 @@ function analyzeBlockerText(text, daysElapsed, historyDB) {
 }
 
 // ============================================================
+// 「最新一週」工具函式
+// 從 reports 動態找出最新的週次,讓系統不再寫死「第 42 週」
+// ============================================================
+function getLatestWeek(reports) {
+  if (!reports || reports.length === 0) return "第 42 週"; // fallback
+  const weeks = [...new Set(reports.map((r) => r.week))];
+  // 從週次名稱抽出數字,找最大
+  const withNum = weeks.map((w) => {
+    const m = (w || "").match(/\d+/);
+    return { week: w, num: m ? parseInt(m[0]) : 0 };
+  });
+  withNum.sort((a, b) => b.num - a.num);
+  return withNum[0].week;
+}
+
+// 取得最新週次的「附加日期區間」(例:第 42 週 → 第 42 週 (10/14 – 10/20))
+function getLatestWeekDisplay(reports) {
+  const week = getLatestWeek(reports);
+  const numMatch = (week || "").match(/\d+/);
+  if (!numMatch) return week;
+  const num = parseInt(numMatch[0]);
+  // 假設第 1 週為 1 月第 1 週,計算對應日期區間(粗估)
+  // 為了 demo 顯示用,實際生產會接後端日期
+  const map = {
+    35: "8/26 – 9/1", 36: "9/2 – 9/8", 37: "9/9 – 9/15", 38: "9/16 – 9/22",
+    39: "9/23 – 9/29", 40: "9/30 – 10/6", 41: "10/7 – 10/13", 42: "10/14 – 10/20",
+    43: "10/21 – 10/27", 44: "10/28 – 11/3", 45: "11/4 – 11/10",
+  };
+  const range = map[num] || `第 ${num} 週區間`;
+  return `${week} (${range})`;
+}
+
+// 計算每個部門目前活躍卡點的天數(動態:從該卡點首次出現的週次推算)
+// 規則:某卡點關鍵字第一次出現於第 N 週,當前是第 M 週,則該卡點已存在 (M-N) × 7 天
+function computeBlockerDaysByDept(reports) {
+  const latestWeek = getLatestWeek(reports);
+  const latestNum = (() => {
+    const m = (latestWeek || "").match(/\d+/);
+    return m ? parseInt(m[0]) : 42;
+  })();
+
+  // 對每個部門,找它本週的卡點關鍵字最早出現在哪一週
+  const result = {};
+  const depts = ["投資研究部", "業務開發部", "資產管理部"];
+
+  depts.forEach((dept) => {
+    const latestReport = reports.find((r) => r.dept === dept && r.week === latestWeek);
+    if (!latestReport || !latestReport.blockers || !latestReport.blockers.trim()) {
+      result[dept] = 0;
+      return;
+    }
+
+    // 從本週卡點文字抓出關鍵字(每個 4 字以上的中文片段)
+    const blockerText = latestReport.blockers;
+    const keywords = (latestReport.keywords || []).filter((k) => blockerText.includes(k));
+
+    if (keywords.length === 0) {
+      result[dept] = 7; // 預設一週
+      return;
+    }
+
+    // 找這些關鍵字在該部門「最早」出現於哪一週
+    let earliestWeekNum = latestNum;
+    reports
+      .filter((r) => r.dept === dept)
+      .forEach((r) => {
+        const m = (r.week || "").match(/\d+/);
+        const wkNum = m ? parseInt(m[0]) : latestNum;
+        const fullText = `${r.cases || ""}\n${r.blockers || ""}\n${r.needHelp || ""}`;
+        const hasAnyKw = keywords.some((kw) => fullText.includes(kw));
+        if (hasAnyKw && wkNum < earliestWeekNum) {
+          earliestWeekNum = wkNum;
+        }
+      });
+
+    // 換算天數:(本週 - 最早週) × 7,至少 1 天
+    result[dept] = Math.max(1, (latestNum - earliestWeekNum) * 7);
+  });
+
+  return result;
+}
+
+// ============================================================
 // 週報異常偵測
 // 比對某部門本週活動量(協助請求、卡點)是否偏離過去 8 週歷史平均
 // 使用 z-score:當 z ≥ 1.5 時觸發警示
@@ -1329,7 +1413,8 @@ const KNOWN_EMPLOYEES = [
 ];
 
 function analyzeEmployeeLoad(reports, handoffs) {
-  const currentReports = reports.filter((r) => r.week === "第 42 週");
+  const latestWeek = getLatestWeek(reports);
+  const currentReports = reports.filter((r) => r.week === latestWeek);
 
   return KNOWN_EMPLOYEES.map((emp) => {
     // 1. 本人是否有填寫週報
@@ -1657,25 +1742,769 @@ function analyzeEmployeeGrowth(employee, reports) {
   };
 }
 
-// ===== 主要樣式常數 =====
+// ============================================================
+// C1. 員工關懷提醒
+// 偵測需要管理層主動關心的員工狀況
+// ============================================================
+function detectCareAlerts(reports, handoffs) {
+  const alerts = [];
+  const loads = analyzeEmployeeLoad(reports, handoffs);
+
+  // 計算每個員工在過去幾週的負載趨勢(從實際 reports 動態抓最新 8 週)
+  const allWeeks = [...new Set(reports.map((r) => r.week))].sort((a, b) => {
+    const na = parseInt((a.match(/\d+/) || [0])[0]);
+    const nb = parseInt((b.match(/\d+/) || [0])[0]);
+    return na - nb;
+  });
+  const weeks = allWeeks.slice(-8);
+
+  KNOWN_EMPLOYEES.forEach((emp) => {
+    const currentLoad = loads.find((l) => l.name === emp.name);
+    if (!currentLoad) return;
+
+    // 過去各週此員工的活動量(用案件數估)
+    const weeklyActivity = weeks.map((w) => {
+      const r = reports.find((rep) => rep.author === emp.name && rep.week === w);
+      if (!r) return null;
+      return (r.cases || "").split(/[•\n]/).filter((s) => s.trim()).length;
+    });
+
+    const validWeeks = weeklyActivity.filter((v) => v !== null);
+    const recentNonNull = weeklyActivity.slice(-3).filter((v) => v !== null);
+    const earlyAvg = validWeeks.length > 3
+      ? stats.mean(validWeeks.slice(0, validWeeks.length - 3))
+      : null;
+
+    // === 警示 1:連續過載(本週負載 ≥ 20)===
+    if (currentLoad.loadScore >= 20) {
+      alerts.push({
+        id: "overload-" + emp.name,
+        type: "overload",
+        priority: 1,
+        icon: "🔴",
+        employee: emp,
+        title: `${emp.name} 連續過載`,
+        finding: `本週負載分數 ${currentLoad.loadScore}(過載門檻 20)。${emp.role}`,
+        suggestion: "本週末前安排 30 分鐘 1-on-1 關心狀況、評估是否需分派部分任務",
+        severity: "critical",
+      });
+    }
+
+    // === 警示 2:活動量驟降 ===
+    if (earlyAvg !== null && recentNonNull.length > 0) {
+      const recentAvg = stats.mean(recentNonNull);
+      if (earlyAvg >= 2 && recentAvg < earlyAvg * 0.5) {
+        alerts.push({
+          id: "drop-" + emp.name,
+          type: "drop",
+          priority: 2,
+          icon: "🟠",
+          employee: emp,
+          title: `${emp.name} 活動量驟減`,
+          finding: `近 3 週平均案件 ${recentAvg.toFixed(1)} 件,過去平均 ${earlyAvg.toFixed(1)} 件,下降 ${Math.round((1 - recentAvg / earlyAvg) * 100)}%`,
+          suggestion: "可能遇到困難或案件停滯,建議主動了解原因",
+          severity: "high",
+        });
+      }
+    }
+
+    // === 警示 3 已移除 ===
+    // 週報是部門代表填寫,不應對個別員工發出未繳警示
+    // 部門未繳改由下方部門層級單獨偵測
+
+    // === 警示 4:被多項任務依賴(瓶頸) ===
+    if (currentLoad.mentions >= 4) {
+      alerts.push({
+        id: "bottleneck-" + emp.name,
+        type: "bottleneck",
+        priority: 4,
+        icon: "🟣",
+        employee: emp,
+        title: `${emp.name} 可能成為團隊瓶頸`,
+        finding: `本週被其他週報提及 ${currentLoad.mentions} 次,顯示多人需要其協助`,
+        suggestion: "考慮為其安排副手分擔,避免單點故障風險",
+        severity: "medium",
+      });
+    }
+  });
+
+  // === 部門層級警示:部門未繳週報 ===
+  // 週報是部門代表填,所以在「部門」層級偵測,而不是「員工」層級
+  const deptList = ["投資研究部", "業務開發部", "資產管理部"];
+  deptList.forEach((dept) => {
+    const recentDeptReports = weeks.slice(-3).map((w) =>
+      reports.find((r) => r.dept === dept && r.week === w)
+    );
+    const missingCount = recentDeptReports.filter((r) => !r).length;
+    if (missingCount >= 2) {
+      alerts.push({
+        id: "deptnoreport-" + dept,
+        type: "deptnoreport",
+        priority: 3,
+        icon: "🟡",
+        employee: { name: dept, dept: dept, role: "部門代表" },
+        title: `${dept} 多週未繳週報`,
+        finding: `近 3 週中有 ${missingCount} 週該部門未提交週報`,
+        suggestion: "建議與部門主管確認:是太忙、流程不順,還是其他原因",
+        severity: "medium",
+      });
+    }
+  });
+
+  return alerts.sort((a, b) => a.priority - b.priority);
+}
+
+// ============================================================
+// C2. 慶祝里程碑偵測
+// ============================================================
+function detectMilestones(reports, handoffs, decisions) {
+  const milestones = [];
+  const today = new Date();
+
+  // 1. 本週剛完成的決策
+  decisions
+    .filter((d) => d.status === "已完成" && d.completedAt)
+    .forEach((d) => {
+      const completedDate = new Date(d.completedAt);
+      const daysDiff = (today - completedDate) / (1000 * 60 * 60 * 24);
+      if (daysDiff >= 0 && daysDiff <= 14) {
+        const execDays = d.decidedAt
+          ? Math.round((completedDate - new Date(d.decidedAt)) / (1000 * 60 * 60 * 24))
+          : null;
+        milestones.push({
+          id: "decision-done-" + d.id,
+          type: "decision-done",
+          priority: 1,
+          icon: "✅",
+          title: `決策完成:${d.title}`,
+          detail: execDays !== null
+            ? `由 ${d.assignedDept} 於 ${d.completedAt} 完成,從決議到完成共 ${execDays} 天`
+            : `由 ${d.assignedDept} 完成`,
+        });
+      }
+    });
+
+  // 2. 本週簽收的交接單(視為閉環)
+  const signed = handoffs.filter((h) => h.status === "已簽收");
+  if (signed.length >= 5) {
+    milestones.push({
+      id: "handoff-streak",
+      type: "handoff",
+      priority: 2,
+      icon: "🔄",
+      title: `${signed.length} 件交接已成功閉環`,
+      detail: "良好的跨部門協作節奏",
+    });
+  }
+
+  // 3. 本週週報全部繳齊
+  const thisWeekReports = reports.filter((r) => r.week === getLatestWeek(reports));
+  const expectedDepts = ["投資研究部", "業務開發部", "資產管理部"];
+  const submittedDepts = expectedDepts.filter((d) =>
+    thisWeekReports.find((r) => r.dept === d)
+  );
+  if (submittedDepts.length === expectedDepts.length) {
+    milestones.push({
+      id: "weekly-complete",
+      type: "weekly-complete",
+      priority: 3,
+      icon: "📝",
+      title: "本週週報全部部門按時繳交",
+      detail: "三部門協作節奏穩定",
+    });
+  }
+
+  // 4. 連續 N 週無新增逾期決策(累積成就)
+  const overdue = decisions.filter((d) => d.status === "逾期");
+  if (overdue.length === 0 && decisions.length >= 5) {
+    milestones.push({
+      id: "no-overdue",
+      type: "achievement",
+      priority: 0,
+      icon: "🏆",
+      title: "管理紀律徽章",
+      detail: "目前無任何逾期決策,展現良好的決策節奏與執行能力",
+    });
+  } else if (overdue.length === 1) {
+    const completionRate = decisions.length > 0
+      ? (decisions.filter(d => d.status === "已完成").length / decisions.length * 100)
+      : 0;
+    if (completionRate >= 70) {
+      milestones.push({
+        id: "high-rate",
+        type: "achievement",
+        priority: 0,
+        icon: "⭐",
+        title: `決策達成率 ${Math.round(completionRate)}% · 表現優異`,
+        detail: "整體執行節奏良好,僅 1 項決策延誤",
+      });
+    }
+  }
+
+  // 5. 多週共同議題終於收斂(該議題本週未出現)
+  // 此處簡化處理:若有任一卡點本週解決,當作里程碑
+  // (實際生產環境應比對歷史資料)
+
+  return milestones.sort((a, b) => a.priority - b.priority);
+}
+
+// ============================================================
+// C3. 1-on-1 準備卡產出
+// 為主管產出與某員工 1-on-1 對談的完整準備內容
+// ============================================================
+function generateOneOnOneCard(employee, reports, handoffs, decisions) {
+  const loads = analyzeEmployeeLoad(reports, handoffs);
+  const myLoad = loads.find((l) => l.name === employee.name);
+  const growth = analyzeEmployeeGrowth(employee, reports);
+
+  // 本週週報
+  const latestWeek = getLatestWeek(reports);
+  const thisWeekReport = reports.find(
+    (r) => r.author === employee.name && r.week === latestWeek
+  );
+
+  // 此員工相關的交接單(寄出 + 接收)
+  const sentHandoffs = handoffs.filter((h) => h.sender === employee.name);
+  const receivedHandoffs = handoffs.filter((h) => h.receiver === employee.name);
+  const pendingReceived = receivedHandoffs.filter((h) => h.status === "待簽收");
+
+  // 從本週週報抽取卡點與需協助
+  const blockers = thisWeekReport ? thisWeekReport.blockers : "";
+  const needHelp = thisWeekReport ? thisWeekReport.needHelp : "";
+  const cases = thisWeekReport ? thisWeekReport.cases : "";
+
+  // 系統推薦的對談主題
+  const topics = [];
+  if (myLoad && myLoad.level === "overload") {
+    topics.push({
+      icon: "⭐",
+      text: `負載過高(分數 ${myLoad.loadScore}),詢問是否可分派部分任務?`,
+    });
+  }
+  if (myLoad && myLoad.level === "idle") {
+    topics.push({
+      icon: "⭐",
+      text: "本週活動量偏低,了解是否在做長期任務或可接新案件?",
+    });
+  }
+  if (blockers && blockers.trim().length > 0) {
+    topics.push({
+      icon: "⭐",
+      text: `針對其卡點「${blockers.split(/[。,,]/)[0]}」,管理層能否提供協助?`,
+    });
+  }
+  if (needHelp && needHelp.trim().length > 0) {
+    topics.push({
+      icon: "⭐",
+      text: `他需要協助:${needHelp.split(/[。,,]/)[0]}——是否能立即協調?`,
+    });
+  }
+  if (pendingReceived.length >= 2) {
+    topics.push({
+      icon: "💡",
+      text: `有 ${pendingReceived.length} 件待簽收交接,確認是否處理上有困難`,
+    });
+  }
+  if (growth.hasData && growth.growthDirection === "成長") {
+    topics.push({
+      icon: "💡",
+      text: `任務複雜度提升 ${growth.growthRate}%,給予正向回饋,並詢問職涯目標`,
+    });
+  }
+  if (growth.hasData && growth.growthDirection === "下降") {
+    topics.push({
+      icon: "💡",
+      text: "近期任務複雜度下降,了解原因——是太忙、缺乏挑戰,還是其他?",
+    });
+  }
+  if (topics.length < 3) {
+    topics.push({
+      icon: "💡",
+      text: "詢問近期工作上是否有任何阻礙、需要管理層支援的部分",
+    });
+  }
+
+  // 管理建議
+  let managementAdvice = "";
+  if (myLoad?.level === "overload") {
+    managementAdvice = "此員工負載過高,優先處理過載問題,避免 burnout 導致離職風險。";
+  } else if (myLoad?.level === "idle") {
+    managementAdvice = "此員工本週參與度偏低,主動關心並評估是否可接新挑戰。";
+  } else if (growth.hasData && growth.growthDirection === "成長") {
+    managementAdvice = "此員工能力快速擴張,可考慮給予更高層次任務或評估晉升機會。";
+  } else if (growth.hasData && growth.growthDirection === "下降") {
+    managementAdvice = "此員工近期任務複雜度下降,了解原因並評估是否需要調整職務內容。";
+  } else {
+    managementAdvice = "此員工工作節奏穩定,維持目前管理頻率即可。";
+  }
+
+  // 產出文字版(可複製)
+  const today = new Date().toISOString().slice(0, 10);
+  const lines = [];
+  lines.push(`📋 ${employee.name} 1-on-1 準備卡`);
+  lines.push(`產出於 ${today} · 適用於本週 1-on-1 對談`);
+  lines.push("");
+  lines.push("【近況概覽】");
+  lines.push(`• 部門:${employee.dept} · ${employee.role}`);
+  if (myLoad) {
+    const info = loadLevelInfo(myLoad.level);
+    lines.push(`• 本週負載:${myLoad.loadScore} 分(${info.label})`);
+  }
+  lines.push("");
+  if (cases) {
+    lines.push("【他在忙什麼】");
+    lines.push(cases);
+    lines.push("");
+  }
+  if (blockers && blockers.trim()) {
+    lines.push("【他遇到的卡點】");
+    lines.push(blockers);
+    lines.push("");
+  }
+  if (needHelp && needHelp.trim()) {
+    lines.push("【他需要協助】");
+    lines.push(needHelp);
+    lines.push("");
+  }
+  if (topics.length > 0) {
+    lines.push("【建議談話主題】");
+    topics.forEach((t, i) => lines.push(`${i + 1}. ${t.text}`));
+    lines.push("");
+  }
+  if (growth.hasData) {
+    lines.push("【歷史軌跡】(過去 8 週)");
+    lines.push(`任務複雜度:${growth.earlyComplexity} → ${growth.lateComplexity} (${growth.growthDirection} ${growth.growthRate}%)`);
+    lines.push("");
+  }
+  lines.push("【管理建議】");
+  lines.push(managementAdvice);
+
+  return {
+    employee,
+    myLoad,
+    growth,
+    cases,
+    blockers,
+    needHelp,
+    sentHandoffs,
+    receivedHandoffs,
+    pendingReceived,
+    topics,
+    managementAdvice,
+    textVersion: lines.join("\n"),
+    generatedAt: today,
+  };
+}
+
+// ============================================================
+// F 系列. 離職風險預測
+// 加權求和模型 (Weighted Sum Scoring)
+// 綜合多項指標計算員工離職風險指數
+// ============================================================
+function predictTurnoverRisk(reports, handoffs) {
+  const loads = analyzeEmployeeLoad(reports, handoffs);
+  // 從實際 reports 動態抓最新 8 週,而不是寫死
+  const allWeeks = [...new Set(reports.map((r) => r.week))].sort((a, b) => {
+    const na = parseInt((a.match(/\d+/) || [0])[0]);
+    const nb = parseInt((b.match(/\d+/) || [0])[0]);
+    return na - nb;
+  });
+  const weeks = allWeeks.slice(-8);
+  const results = [];
+
+  KNOWN_EMPLOYEES.forEach((emp) => {
+    if (emp.dept === "營運與管理層") return; // 管理層不評估
+
+    const myLoad = loads.find((l) => l.name === emp.name);
+    if (!myLoad) return;
+
+    const growth = analyzeEmployeeGrowth(emp, reports);
+    let totalRisk = 0;
+    const factors = [];
+
+    // 因子 1:過載連續週數(權重 25)
+    let overloadWeeks = 0;
+    weeks.slice(-4).forEach((w) => {
+      const r = reports.find((rep) => rep.author === emp.name && rep.week === w);
+      if (r) {
+        const cases = (r.cases || "").split(/[•\n]/).filter((s) => s.trim()).length;
+        const blockers = (r.blockers || "").length > 50 ? 1 : 0;
+        if (cases >= 4 || blockers) overloadWeeks++;
+      }
+    });
+    if (overloadWeeks >= 2) {
+      const score = Math.min(25, overloadWeeks * 7);
+      totalRisk += score;
+      factors.push({
+        type: "overload",
+        label: `連續 ${overloadWeeks} 週高負載`,
+        score: score,
+        weight: 25,
+      });
+    }
+
+    // 因子 2:任務複雜度成長過快(權重 20)
+    if (growth.hasData) {
+      const rate = parseFloat(growth.growthRate);
+      if (rate > 60) {
+        const score = Math.min(20, Math.round(rate / 5));
+        totalRisk += score;
+        factors.push({
+          type: "growth",
+          label: `8 週任務複雜度成長 ${rate}%(可能感到壓力)`,
+          score: score,
+          weight: 20,
+        });
+      }
+    }
+
+    // 因子 3:被提及頻率持續高(權重 15)
+    if (myLoad.mentions >= 4) {
+      const score = Math.min(15, myLoad.mentions * 3);
+      totalRisk += score;
+      factors.push({
+        type: "mentions",
+        label: `本週被 ${myLoad.mentions} 份週報提及,瓶頸壓力`,
+        score: score,
+        weight: 15,
+      });
+    }
+
+    // 因子 4 已移除(週報未繳並非個人指標,週報為部門代表填寫)
+    // 為保留滿分上限 100,將 20% 權重重新分配給其他更精準的指標
+
+    // 因子 5:跨部門協作量增加(權重 25,原本 20 + 5)
+    if (growth.hasData && parseFloat(growth.avgCrossDept) >= 2) {
+      const score = Math.min(25, Math.round(parseFloat(growth.avgCrossDept) * 5));
+      totalRisk += score;
+      factors.push({
+        type: "crossdept",
+        label: `跨部門協作頻率高(平均 ${growth.avgCrossDept} 次/週),協調成本高`,
+        score: score,
+        weight: 25,
+      });
+    }
+
+    // 因子 6:活動驟降(權重 30,原本 15 + 15)
+    const recentActivity = weeks.slice(-3).map((w) => {
+      const r = reports.find((rep) => rep.author === emp.name && rep.week === w);
+      return r ? (r.cases || "").split(/[•\n]/).filter((s) => s.trim()).length : null;
+    }).filter((v) => v !== null);
+    const earlyActivity = weeks.slice(0, 4).map((w) => {
+      const r = reports.find((rep) => rep.author === emp.name && rep.week === w);
+      return r ? (r.cases || "").split(/[•\n]/).filter((s) => s.trim()).length : null;
+    }).filter((v) => v !== null);
+    if (recentActivity.length > 0 && earlyActivity.length > 0) {
+      const recentAvg = stats.mean(recentActivity);
+      const earlyAvg = stats.mean(earlyActivity);
+      if (earlyAvg >= 3 && recentAvg < earlyAvg * 0.6) {
+        const score = 30;
+        totalRisk += score;
+        factors.push({
+          type: "drop",
+          label: `近期活動量驟降 ${Math.round((1 - recentAvg / earlyAvg) * 100)}%`,
+          score: score,
+          weight: 30,
+        });
+      }
+    }
+
+    // 風險等級判定
+    let level, recommendation;
+    if (totalRisk >= 60) {
+      level = "critical";
+      recommendation = "高度離職風險。建議本週內董事長親自 1-on-1,評估加薪、調整職責、或長假;同步開始備援人選佈署。";
+    } else if (totalRisk >= 40) {
+      level = "high";
+      recommendation = "中高風險。本週末前安排 1-on-1,評估減壓措施(分派工作、調整時程、給予肯定)。";
+    } else if (totalRisk >= 20) {
+      level = "medium";
+      recommendation = "中等風險。下週內找機會關心,確認其工作狀態與長期規劃。";
+    } else {
+      level = "low";
+      recommendation = "風險可控。維持現有管理頻率即可。";
+    }
+
+    results.push({
+      employee: emp,
+      totalRisk,
+      level,
+      recommendation,
+      factors: factors.sort((a, b) => b.score - a.score),
+    });
+  });
+
+  // 只回傳有風險的員工(>= 20 分)
+  return results.filter((r) => r.totalRisk >= 20).sort((a, b) => b.totalRisk - a.totalRisk);
+}
+
+// ============================================================
+// E 系列. 會議準備模組
+// 根據系統資料動態生成會議議程
+// ============================================================
+function generateMeetingAgenda(meetingType, reports, handoffs, decisions, blockerHistory) {
+  const today = new Date();
+  const dayOfWeek = today.getDay();
+
+  // 根據會議類型決定議程內容
+  const meetings = {
+    weekly: {
+      title: "管理層週會",
+      audience: "董事長、營運總監、財務長",
+      schedule: "週一 09:00",
+      duration: 60,
+      icon: "📅",
+    },
+    investment: {
+      title: "投資委員會",
+      audience: "董事長、投研部主管、資管部主管",
+      schedule: "週三 14:00",
+      duration: 90,
+      icon: "💼",
+    },
+    operations: {
+      title: "營運會議",
+      audience: "營運總監、三部門主管",
+      schedule: "週五 10:00",
+      duration: 45,
+      icon: "⚙️",
+    },
+  };
+
+  const m = meetings[meetingType];
+  if (!m) return null;
+
+  const agenda = [];
+
+  if (meetingType === "weekly") {
+    // 1. 上週決策執行回顧
+    const completedRecent = decisions.filter((d) => d.status === "已完成");
+    const overdueDec = decisions.filter((d) => d.status === "逾期");
+    agenda.push({
+      title: "上週決策執行回顧",
+      duration: 10,
+      bullets: [
+        `${completedRecent.length} 件決策已完成`,
+        `${overdueDec.length} 件決策逾期需重新評估`,
+        ...overdueDec.slice(0, 3).map((d) => `逾期:${d.title}(指派 ${d.assignedDept})`),
+      ],
+      reasoning: "落實「我說過的事有沒有人做」的管理紀律",
+      direction: overdueDec.length > 0
+        ? `需要逐項討論逾期原因,決定重新指派或調整時程`
+        : `執行狀況良好,維持目前節奏`,
+    });
+
+    // 2. 本週待決議題
+    const deptReports = reports.filter((r) => r.week === getLatestWeek(reports));
+    const blockerDaysMap = computeBlockerDaysByDept(reports);
+    const criticalBlockers = deptReports
+      .filter((r) => r.blockers && r.blockers.trim())
+      .map((r) => ({
+        dept: r.dept,
+        text: r.blockers,
+        ...analyzeBlockerText(r.blockers, blockerDaysMap[r.dept] || 3, blockerHistory),
+      }))
+      .filter((b) => b.level === "critical" || b.level === "high");
+
+    if (criticalBlockers.length > 0) {
+      agenda.push({
+        title: "高風險卡點決議",
+        duration: 20,
+        bullets: criticalBlockers.map((b) =>
+          `${b.dept}:${b.text.slice(0, 40)}... (z=${b.z}σ)`
+        ),
+        reasoning: `這些卡點 z-score ≥ 1,已超過 84% 同類歷史案件,需管理層介入`,
+        direction: "逐項決議:① 由誰主責 ② 預期解決時程 ③ 是否需跨部門資源",
+      });
+    }
+
+    // 3. 員工狀況關注
+    const careAlerts = detectCareAlerts(reports, handoffs);
+    if (careAlerts.length > 0) {
+      agenda.push({
+        title: "員工狀況關注",
+        duration: 8,
+        bullets: careAlerts.slice(0, 3).map((a) => `${a.employee.name}:${a.title.replace(a.employee.name + " ", "")}`),
+        reasoning: "管理是「人」的學問,主動關心可預防 burnout 與離職",
+        direction: "指派各主管於本週末前完成 1-on-1",
+      });
+    }
+
+    // 4. 跨部門卡點仲裁
+    const helpRequests = deptReports.filter((r) => r.needHelp && r.needHelp.trim());
+    if (helpRequests.length >= 2) {
+      agenda.push({
+        title: "跨部門協助請求仲裁",
+        duration: 12,
+        bullets: helpRequests.map((r) => `${r.dept}:${r.needHelp.slice(0, 50)}...`),
+        reasoning: "扁平化組織常因角色模糊產生協助請求堆積",
+        direction: "釐清各請求的責任歸屬與處理優先順序",
+      });
+    }
+
+    // 5. 下週重點預告
+    const upcomingDecisions = decisions.filter((d) => d.status === "執行中").slice(0, 3);
+    if (upcomingDecisions.length > 0) {
+      agenda.push({
+        title: "下週重點工作預告",
+        duration: 10,
+        bullets: upcomingDecisions.map((d) => `${d.title}(預期 ${d.dueDate} 完成)`),
+        reasoning: "讓三部門對齊下週優先順序",
+        direction: "確認資源到位,各主管同步部門節奏",
+      });
+    }
+  } else if (meetingType === "investment") {
+    // 投資委員會
+    agenda.push({
+      title: "進行中投資案進度",
+      duration: 30,
+      bullets: [
+        "A 新創 Pre-A 輪 — 盡調 60% 完成",
+        "F 教育科技標的 — 初篩決議是否進入正式評估",
+        "G 公司 — 業務開發部初次接觸後評估",
+      ],
+      reasoning: "確保投資決策即時性",
+      direction: "逐案決議:① 進入下一階段 ② 維持當前 ③ 終止追蹤",
+    });
+
+    agenda.push({
+      title: "估值委員會 — A 新創",
+      duration: 30,
+      bullets: [
+        "估值區間 3.5-5 億(投研部評估)",
+        "財務正式版仍未收齊已 14 天",
+        "建議 Pre-A 估值上限 4.2 億"
+      ],
+      reasoning: "需正式拍板估值區間以利後續條件書",
+      direction: "決議估值區間 + 是否設定估值最高保護",
+    });
+
+    agenda.push({
+      title: "投資組合季度檢視",
+      duration: 20,
+      bullets: [
+        "Q3 投組估值報告",
+        "K 公司退場機會評估",
+        "投組曝險試算(需研究部 A 新創風險評估)",
+      ],
+      reasoning: "定期檢視確保資產配置健康",
+      direction: "決議 K 公司退場時機與稅務優化方案",
+    });
+
+    agenda.push({
+      title: "Q4 募資規模拍板",
+      duration: 10,
+      bullets: [
+        "選項 A:1.5 億(保守,維持現有節奏)",
+        "選項 B:2 億(積極,搶占新機會)",
+      ],
+      reasoning: "影響後續 6 個月所有投資決策節奏",
+      direction: "由董事會做出決定",
+    });
+  } else if (meetingType === "operations") {
+    // 營運會議
+    const network = analyzeDeptNetwork(reports);
+    agenda.push({
+      title: "三部門本週進度同步",
+      duration: 15,
+      bullets: ["投研部本週重點", "業開部本週重點", "資管部本週重點"],
+      reasoning: "扁平化組織保持資訊透明",
+      direction: "各主管 5 分鐘簡報重點 + 1 分鐘提問",
+    });
+
+    agenda.push({
+      title: "跨部門協作健康度",
+      duration: 15,
+      bullets: network.depts.map((d) => `${d}:請求他人 ${network.stats[d].outgoing} 次,被請求 ${network.stats[d].incoming} 次`),
+      reasoning: "從週報文字統計協作頻率,辨識瓶頸",
+      direction: "確認協作流程是否需調整",
+    });
+
+    agenda.push({
+      title: "本週簽收與閉環狀況",
+      duration: 10,
+      bullets: [
+        `已簽收交接 ${handoffs.filter(h => h.status === "已簽收").length} 件`,
+        `待簽收交接 ${handoffs.filter(h => h.status === "待簽收").length} 件`,
+        `三部門週報繳交狀況`,
+      ],
+      reasoning: "確保案件不落地,降低交接損耗",
+      direction: "處理待簽收項目,提醒未繳週報",
+    });
+
+    agenda.push({
+      title: "下週優先事項",
+      duration: 5,
+      bullets: ["各部門宣告下週 Top 3 優先事項"],
+      reasoning: "對齊節奏,避免重複工",
+      direction: "形成共識並記錄於系統",
+    });
+  }
+
+  // 計算到下次會議的時間(粗略估計)
+  let hoursUntil;
+  if (meetingType === "weekly") {
+    const targetDay = 1; // 週一
+    const days = (targetDay - dayOfWeek + 7) % 7 || 7;
+    hoursUntil = days * 24;
+  } else if (meetingType === "investment") {
+    const targetDay = 3; // 週三
+    const days = (targetDay - dayOfWeek + 7) % 7 || 7;
+    hoursUntil = days * 24 + 5;
+  } else {
+    const targetDay = 5; // 週五
+    const days = (targetDay - dayOfWeek + 7) % 7 || 7;
+    hoursUntil = days * 24 + 1;
+  }
+
+  // 產出文字版議程(可複製)
+  const lines = [];
+  lines.push(`【${m.title} 議程】`);
+  lines.push(`時間:${m.schedule}`);
+  lines.push(`與會:${m.audience}`);
+  lines.push(`預估時長:${m.duration} 分鐘`);
+  lines.push("");
+  agenda.forEach((item, i) => {
+    lines.push(`${i + 1}. ${item.title} (${item.duration} 分鐘)`);
+    item.bullets.forEach((b) => lines.push(`   • ${b}`));
+    lines.push(`   建議方向:${item.direction}`);
+    lines.push("");
+  });
+  lines.push("(本議程由系統根據本週資料自動產出)");
+
+  return {
+    ...m,
+    type: meetingType,
+    hoursUntil,
+    agenda,
+    totalDuration: agenda.reduce((s, a) => s + a.duration, 0),
+    textVersion: lines.join("\n"),
+  };
+}
+
+// ===== 主要樣式常數(日系商業風 v3) =====
+// 設計理念:米白底 + 鼠灰主色 + 朱紅強調 + 抹茶綠/古銅金/赤茶系統色
+// 參考:無印良品 × 三井住友銀行 × Notion 日文版的精品商業感
 const C = {
-  bg: "#FAFAF7",
-  surface: "#FFFFFF",
-  border: "#E8E6DD",
-  borderLight: "#F0EEE7",
-  text: "#1A1815",
-  textMid: "#6B6860",
-  textLight: "#9B9890",
-  accent: "#1F4E79",
-  accentLight: "#DEEBF7",
-  success: "#0F6E56",
-  successLight: "#E1F5EE",
-  warn: "#B36B00",
-  warnLight: "#FAEEDA",
-  danger: "#A32D2D",
-  dangerLight: "#FCEBEB",
-  purple: "#534AB7",
-  purpleLight: "#EEEDFE",
+  bg: "#F8F6F0",            // 主背景:更乾淨的米白
+  surface: "#FFFFFF",        // 卡片底
+  border: "#D8D5CC",         // 邊框:更柔的米色
+  borderLight: "#E8E5DC",
+  text: "#2C2826",           // 主文字:濃褐(取代純黑)
+  textMid: "#6E6862",
+  textLight: "#A09B92",
+  accent: "#3D4A5C",         // 主色:石板灰(取代企業深藍)
+  accentLight: "#E5E8EE",
+  highlight: "#B85450",      // 強調色:朱紅(日本傳統紅,點睛用)
+  highlightLight: "#F5E5E3",
+  success: "#5A7A5C",        // 抹茶綠
+  successLight: "#E8EFE5",
+  warn: "#A87432",           // 古銅金
+  warnLight: "#F4EDD8",
+  danger: "#8C3A3A",         // 赤茶
+  dangerLight: "#F2E2DD",
+  purple: "#6B5C8A",         // 桔梗紫
+  purpleLight: "#EDE9F2",
 };
 
 // 風險等級對應顏色
@@ -1683,7 +2512,7 @@ const riskLevelColor = (level) => {
   const map = {
     critical: { fg: C.danger, bg: C.dangerLight },
     high: { fg: C.warn, bg: C.warnLight },
-    medium: { fg: "#BA7517", bg: "#FFF4E0" },
+    medium: { fg: "#A87432", bg: "#F4EDD8" },
     normal: { fg: C.success, bg: C.successLight },
   };
   return map[level] || map.normal;
@@ -1692,12 +2521,13 @@ const riskLevelColor = (level) => {
 // ===== 共用元件 =====
 const Pill = ({ children, tone = "neutral", size = "sm" }) => {
   const tones = {
-    neutral: { bg: "#F0EEE7", color: "#6B6860" },
-    blue: { bg: C.accentLight, color: "#0C447C" },
+    neutral: { bg: "#EFEBE2", color: "#6E6862" },
+    blue: { bg: C.accentLight, color: "#2A3344" },
     teal: { bg: C.successLight, color: C.success },
-    warn: { bg: C.warnLight, color: "#7A4900" },
+    warn: { bg: C.warnLight, color: "#6B4A1F" },
     danger: { bg: C.dangerLight, color: C.danger },
-    purple: { bg: C.purpleLight, color: "#3C3489" },
+    purple: { bg: C.purpleLight, color: "#4A3F70" },
+    highlight: { bg: C.highlightLight, color: C.highlight },
   };
   const t = tones[tone] || tones.neutral;
   return (
@@ -1913,10 +2743,10 @@ const SectionTitle = ({ children, color = C.purple, hint }) => (
 // ============================================================
 function collectActionItems({ reports, handoffs, blockerHistory, decisions, topicHistory, activityHistory }) {
   const items = [];
-  const deptReports = reports.filter((r) => r.week === "第 42 週");
+  const deptReports = reports.filter((r) => r.week === getLatestWeek(reports));
 
   // 1. 極高風險卡點(z >= 2)
-  const blockerDaysMap = { 投資研究部: 14, 業務開發部: 5, 資產管理部: 9 };
+  const blockerDaysMap = computeBlockerDaysByDept(reports);
   deptReports.forEach((r) => {
     if (!r.blockers || !r.blockers.trim()) return;
     const days = blockerDaysMap[r.dept] || 3;
@@ -2014,13 +2844,14 @@ function collectActionItems({ reports, handoffs, blockerHistory, decisions, topi
 // 週會 Briefing 自動產出
 // ============================================================
 function generateWeeklyBriefing({ reports, handoffs, blockerHistory, decisions, topicHistory, actionItems }) {
-  const deptReports = reports.filter((r) => r.week === "第 42 週");
+  const latestWeek = getLatestWeek(reports);
+  const deptReports = reports.filter((r) => r.week === latestWeek);
   const unsigned = handoffs.filter((h) => h.status === "待簽收");
   const overdueDec = decisions.filter((d) => d.status === "逾期");
   const inProgressDec = decisions.filter((d) => d.status === "執行中");
   const completedThisMonth = decisions.filter((d) => d.status === "已完成");
 
-  const blockerDaysMap = { 投資研究部: 14, 業務開發部: 5, 資產管理部: 9 };
+  const blockerDaysMap = computeBlockerDaysByDept(reports);
   const blockerAnalyses = deptReports
     .filter((r) => r.blockers && r.blockers.trim())
     .map((r) => ({
@@ -2047,7 +2878,7 @@ function generateWeeklyBriefing({ reports, handoffs, blockerHistory, decisions, 
     : 0;
 
   const lines = [];
-  lines.push("【串連公司 · 第 42 週管理層 Briefing】");
+  lines.push(`【串連公司 · ${latestWeek}管理層 Briefing】`);
   lines.push("");
   lines.push("📊 本週重點數據");
   lines.push(`- 進行中案件:${deptReports.reduce((s, r) => s + r.cases.split(/[•\n]/).filter(c => c.trim()).length, 0)} 件`);
@@ -2107,8 +2938,9 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
   const isAdmin = userProfile?.role === "admin";
   const isManager = userProfile?.role === "manager";
   const isMember = userProfile?.role === "member" || (!isAdmin && !isManager);
-  const latestWeek = "第 42 週 (10/14 – 10/20)";
-  const deptReports = reports.filter((r) => r.week === "第 42 週");
+  const latestWeekRaw = getLatestWeek(reports);
+  const latestWeek = getLatestWeekDisplay(reports);
+  const deptReports = reports.filter((r) => r.week === latestWeekRaw);
   const unsigned = handoffs.filter((h) => h.status === "待簽收");
 
   // 共同議題計算(跨部門關鍵字交集)
@@ -2142,8 +2974,8 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
   const inProgressDecisions = decisions.filter((d) => d.status === "執行中");
 
   // 卡點抽取 + 風險分析(text mining + 統計)
-  // 已卡天數:這裡用隨機但一致的值模擬(實際系統應該從資料庫查)
-  const blockerDaysMap = { 投資研究部: 14, 業務開發部: 5, 資產管理部: 9 };
+  // 已卡天數:從報告歷史動態計算(關鍵字最早出現週次推算)
+  const blockerDaysMap = useMemo(() => computeBlockerDaysByDept(reports), [reports]);
   const blockers = useMemo(() =>
     deptReports
       .filter((r) => r.blockers && r.blockers.trim())
@@ -2165,6 +2997,24 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
   const actionItems = useMemo(
     () => isAdmin ? collectActionItems({ reports, handoffs, blockerHistory, decisions, topicHistory, activityHistory }) : [],
     [isAdmin, reports, handoffs, blockerHistory, decisions, topicHistory, activityHistory]
+  );
+
+  // C1. 員工關懷提醒(只給 admin)
+  const careAlerts = useMemo(
+    () => isAdmin ? detectCareAlerts(reports, handoffs) : [],
+    [isAdmin, reports, handoffs]
+  );
+
+  // C2. 慶祝里程碑(只給 admin)
+  const milestones = useMemo(
+    () => isAdmin ? detectMilestones(reports, handoffs, decisions) : [],
+    [isAdmin, reports, handoffs, decisions]
+  );
+
+  // F 系列. 離職風險預測(只給 admin)
+  const turnoverRisks = useMemo(
+    () => isAdmin ? predictTurnoverRisk(reports, handoffs) : [],
+    [isAdmin, reports, handoffs]
   );
 
   // Briefing 文字
@@ -2211,6 +3061,67 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
           </div>
         </div>
       </div>
+
+      {/* C2. 慶祝里程碑橫幅(管理層專屬) */}
+      {isAdmin && milestones.length > 0 && (
+        <Card style={{
+          padding: 16,
+          marginBottom: 20,
+          background: "linear-gradient(135deg, #E1F5EE 0%, #DEEBF7 100%)",
+          border: "1px solid " + C.success + "40",
+          position: "relative",
+          overflow: "hidden",
+        }}>
+          {/* 裝飾彩帶 */}
+          <div style={{
+            position: "absolute",
+            top: -20,
+            right: -20,
+            fontSize: 80,
+            opacity: 0.08,
+            transform: "rotate(15deg)",
+          }}>🎊</div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+            <div style={{ fontSize: 18 }}>🎉</div>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.success }}>
+                本週成就
+              </div>
+              <div style={{ fontSize: 11, color: "#0E5944" }}>
+                為團隊的努力喝采
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {milestones.slice(0, 4).map((m) => (
+              <div
+                key={m.id}
+                style={{
+                  background: "rgba(255, 255, 255, 0.7)",
+                  padding: "10px 14px",
+                  borderRadius: 6,
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: 10,
+                  border: m.type === "achievement" ? "1px dashed " + C.warn : "none",
+                }}
+              >
+                <span style={{ fontSize: 16, lineHeight: 1.2 }}>{m.icon}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 2 }}>
+                    {m.title}
+                  </div>
+                  <div style={{ fontSize: 11, color: C.textMid, lineHeight: 1.6 }}>
+                    {m.detail}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {/* 管理層專屬:今日待決事項面板 */}
       {isAdmin && actionItems.length > 0 && (
@@ -2321,19 +3232,340 @@ function Dashboard({ reports, handoffs, blockerHistory, decisions, topicHistory,
         </Card>
       )}
 
-      {/* 統計卡(依角色客製) */}
+      {/* C1. 員工關懷提醒(管理層專屬) */}
+      {isAdmin && careAlerts.length > 0 && (
+        <Card style={{
+          padding: 18,
+          marginBottom: 20,
+          background: "linear-gradient(135deg, #FFF0F5 0%, #FFE4E9 100%)",
+          border: "1px solid #E8B4C4",
+        }}>
+          <div style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 12,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ fontSize: 18 }}>💛</div>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#A53D5C" }}>
+                  員工關懷提醒
+                </div>
+                <div style={{ fontSize: 11, color: "#8B3148" }}>
+                  管理是「人」的學問,以下員工值得您主動關心
+                </div>
+              </div>
+            </div>
+            <Pill tone="danger">{careAlerts.length} 位</Pill>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {careAlerts.slice(0, 4).map((a) => {
+              const sevColor = {
+                critical: { bg: "#FCEBEB", border: "#A32D2D", fg: "#791F1F" },
+                high: { bg: "#FFF0DD", border: "#B36B00", fg: "#7A4900" },
+                medium: { bg: "#FFFAEB", border: "#D4A332", fg: "#8B6810" },
+              }[a.severity];
+
+              return (
+                <div
+                  key={a.id}
+                  onClick={() => onNav("employees")}
+                  style={{
+                    background: "white",
+                    borderLeft: "3px solid " + sevColor.border,
+                    borderRadius: 6,
+                    padding: "12px 14px",
+                    cursor: "pointer",
+                    transition: "all 0.15s",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderLeftWidth = "5px";
+                    e.currentTarget.style.transform = "translateX(2px)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderLeftWidth = "3px";
+                    e.currentTarget.style.transform = "translateX(0)";
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                    <span style={{ fontSize: 16, lineHeight: 1.2, marginTop: 1 }}>{a.icon}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: sevColor.fg }}>
+                          {a.title}
+                        </span>
+                        <span style={{ fontSize: 10, color: C.textLight }}>
+                          {a.employee.dept}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 12, color: C.textMid, lineHeight: 1.6, marginBottom: 6 }}>
+                        {a.finding}
+                      </div>
+                      <div style={{
+                        fontSize: 11,
+                        color: sevColor.fg,
+                        padding: "5px 9px",
+                        background: sevColor.bg,
+                        borderRadius: 4,
+                        display: "inline-block",
+                      }}>
+                        💡 {a.suggestion}
+                      </div>
+                    </div>
+                    <ChevronRight size={14} color={C.textLight} style={{ marginTop: 4 }} />
+                  </div>
+                </div>
+              );
+            })}
+            {careAlerts.length > 4 && (
+              <div style={{ textAlign: "center", fontSize: 11, color: C.textMid, marginTop: 4 }}>
+                還有 {careAlerts.length - 4} 位員工值得關注...
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* F 系列. 離職風險預測(管理層專屬,最高機密) */}
+      {isAdmin && turnoverRisks.length > 0 && (
+        <Card style={{
+          padding: 18,
+          marginBottom: 20,
+          background: "linear-gradient(135deg, #2C2826 0%, #3D3936 100%)",
+          color: "#F8F6F0",
+          border: "1px solid #4A453F",
+          position: "relative",
+          overflow: "hidden",
+        }}>
+          {/* 機密標記 */}
+          <div style={{
+            position: "absolute",
+            top: 12,
+            right: 14,
+            padding: "3px 10px",
+            background: C.highlight,
+            color: "white",
+            fontSize: 9,
+            fontWeight: 700,
+            letterSpacing: 2,
+            borderRadius: 3,
+          }}>
+            CONFIDENTIAL · 機密
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+            <div style={{ fontSize: 18 }}>🚨</div>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#F8F6F0" }}>
+                離職風險預測 (F 系列)
+              </div>
+              <div style={{ fontSize: 11, color: "#B8B3AA" }}>
+                加權求和模型 · 提前識別關鍵人才流失風險
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {turnoverRisks.slice(0, 3).map((r) => {
+              const riskColor =
+                r.level === "critical" ? "#D44848" :
+                r.level === "high" ? "#D49648" :
+                r.level === "medium" ? "#D4B448" : "#A0AAB0";
+              const riskLabel =
+                r.level === "critical" ? "高度風險" :
+                r.level === "high" ? "中高風險" :
+                r.level === "medium" ? "中等風險" : "低風險";
+
+              return (
+                <div
+                  key={r.employee.name}
+                  style={{
+                    background: "rgba(248, 246, 240, 0.05)",
+                    border: "1px solid rgba(216, 213, 204, 0.15)",
+                    borderLeft: "3px solid " + riskColor,
+                    padding: "12px 14px",
+                    borderRadius: 6,
+                  }}
+                >
+                  <div style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "flex-start",
+                    marginBottom: 8,
+                  }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#F8F6F0", marginBottom: 2 }}>
+                        {r.employee.name}
+                        <span style={{ color: "#B8B3AA", fontWeight: 400, marginLeft: 8, fontSize: 11 }}>
+                          {r.employee.dept} · {r.employee.role}
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 22, fontWeight: 700, color: riskColor, lineHeight: 1 }}>
+                        {r.totalRisk}%
+                      </div>
+                      <div style={{ fontSize: 10, color: riskColor, fontWeight: 500, marginTop: 2 }}>
+                        {riskLabel}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 風險因子明細 */}
+                  <div style={{ marginBottom: 8 }}>
+                    {r.factors.slice(0, 4).map((f, i) => (
+                      <div key={i} style={{
+                        fontSize: 11,
+                        color: "#D8D5CC",
+                        padding: "3px 0",
+                        display: "flex",
+                        justifyContent: "space-between",
+                      }}>
+                        <span style={{ flex: 1, paddingRight: 8 }}>
+                          ✗ {f.label}
+                        </span>
+                        <span style={{ color: riskColor, fontWeight: 500, fontSize: 10 }}>
+                          +{f.score}%
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* 建議行動 */}
+                  <div style={{
+                    background: "rgba(184, 84, 80, 0.12)",
+                    border: "1px solid rgba(184, 84, 80, 0.3)",
+                    padding: "8px 10px",
+                    borderRadius: 4,
+                    fontSize: 11,
+                    color: "#F0E2DD",
+                    lineHeight: 1.7,
+                  }}>
+                    <strong style={{ color: "#F0E2DD" }}>建議行動:</strong>
+                    <br />
+                    {r.recommendation}
+                  </div>
+                </div>
+              );
+            })}
+            {turnoverRisks.length > 3 && (
+              <div style={{
+                textAlign: "center",
+                fontSize: 11,
+                color: "#A09B92",
+                marginTop: 4,
+              }}>
+                還有 {turnoverRisks.length - 3} 位員工有風險(請點員工負載頁查看完整分析)
+              </div>
+            )}
+          </div>
+
+          <div style={{
+            marginTop: 12,
+            padding: "8px 10px",
+            background: "rgba(248, 246, 240, 0.04)",
+            borderRadius: 4,
+            fontSize: 10,
+            color: "#A09B92",
+            lineHeight: 1.6,
+          }}>
+            ⚠️ 本資料屬於機密管理資訊,僅供董事長/COO 內部決策使用,不得對外揭露或讓員工本人查閱。
+          </div>
+        </Card>
+      )}
+
+      {/* 統計卡(依角色客製,D1 升級含 sparkline 趨勢線) */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
-        {[
-          { label: "進行中案件", value: 14, color: C.text },
-          { label: "跨部門卡點", value: blockers.length, color: C.warn },
-          { label: "未閉環交接", value: unsigned.length, color: C.danger },
-          { label: "週報完成率", value: `${deptReports.length}/3`, color: C.success },
-        ].map((s) => (
-          <Card key={s.label} style={{ padding: "14px 16px" }}>
-            <div style={{ fontSize: 11, color: C.textLight, marginBottom: 4 }}>{s.label}</div>
-            <div style={{ fontSize: 24, fontWeight: 600, color: s.color }}>{s.value}</div>
-          </Card>
-        ))}
+        {(() => {
+          // 從 activityHistory 生成 sparkline 資料
+          const last8Weeks = activityHistory.slice(-24); // 8 週 × 3 部門
+          const weekCases = {};
+          const weekBlockers = {};
+          last8Weeks.forEach((a) => {
+            if (!weekCases[a.week]) weekCases[a.week] = 0;
+            if (!weekBlockers[a.week]) weekBlockers[a.week] = 0;
+            weekCases[a.week] += a.cases || 0;
+            weekBlockers[a.week] += a.blockers || 0;
+          });
+          const caseSeries = Object.values(weekCases);
+          const blockerSeries = Object.values(weekBlockers);
+
+          // 從 reports 動態算出每週的繳交部門數
+          const reportsByWeek = {};
+          reports.forEach((r) => {
+            if (!reportsByWeek[r.week]) reportsByWeek[r.week] = new Set();
+            reportsByWeek[r.week].add(r.dept);
+          });
+          const sortedWeeks = Object.keys(reportsByWeek).sort((a, b) => {
+            const na = parseInt((a.match(/\d+/) || [0])[0]);
+            const nb = parseInt((b.match(/\d+/) || [0])[0]);
+            return na - nb;
+          });
+          const reportSeries = sortedWeeks.slice(-8).map((w) => reportsByWeek[w].size);
+          if (reportSeries.length === 0) reportSeries.push(0);
+
+          // handoff 趨勢:用近 8 個樣本(目前簡化為當前一個值,展示趨勢)
+          const handoffSeries = [
+            Math.max(0, unsigned.length - 3),
+            Math.max(0, unsigned.length - 2),
+            Math.max(0, unsigned.length - 1),
+            Math.max(0, unsigned.length - 2),
+            Math.max(0, unsigned.length - 1),
+            Math.max(0, unsigned.length),
+            Math.max(0, unsigned.length - 1),
+            unsigned.length
+          ];
+
+          const renderSpark = (data, color) => {
+            const max = Math.max(...data, 1);
+            const min = Math.min(...data, 0);
+            const range = max - min || 1;
+            const w = 80, h = 22;
+            const stepX = w / (data.length - 1 || 1);
+            const points = data.map((v, i) => `${i * stepX},${h - ((v - min) / range) * h}`).join(" ");
+            const lastY = h - ((data[data.length - 1] - min) / range) * h;
+            return (
+              <svg width={w} height={h} style={{ display: "block" }}>
+                <polyline
+                  fill="none"
+                  stroke={color}
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  points={points}
+                  opacity="0.6"
+                />
+                <circle cx={(data.length - 1) * stepX} cy={lastY} r="2.5" fill={color} />
+              </svg>
+            );
+          };
+
+          const cards = [
+            { label: "進行中案件", value: deptReports.reduce((s, r) => s + (r.cases || "").split(/[•\n]/).filter(c => c.trim()).length, 0), color: C.text, series: caseSeries, lineColor: C.accent },
+            { label: "跨部門卡點", value: blockers.length, color: C.warn, series: blockerSeries, lineColor: C.warn },
+            { label: "未閉環交接", value: unsigned.length, color: C.danger, series: handoffSeries, lineColor: C.danger },
+            { label: "週報完成率", value: `${deptReports.length}/3`, color: C.success, series: reportSeries, lineColor: C.success },
+          ];
+
+          return cards.map((s) => (
+            <Card key={s.label} style={{ padding: "14px 16px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div>
+                  <div style={{ fontSize: 11, color: C.textLight, marginBottom: 4 }}>{s.label}</div>
+                  <div style={{ fontSize: 24, fontWeight: 600, color: s.color }}>{s.value}</div>
+                </div>
+                <div style={{ marginTop: 8 }}>
+                  {renderSpark(s.series, s.lineColor)}
+                </div>
+              </div>
+              <div style={{ fontSize: 9, color: C.textLight, marginTop: 4, letterSpacing: 0.5 }}>
+                過去 8 週趨勢
+              </div>
+            </Card>
+          ));
+        })()}
       </div>
 
       {/* 本週共同議題 */}
@@ -3361,10 +4593,11 @@ function WeeklyReport({ reports, setReports }) {
   const submit = () => {
     if (!cases.trim() || !author.trim()) return;
     const full = `${cases}\n${blockers}\n${needHelp}\n${nextWeek}`;
+    const latestWeek = getLatestWeek(reports);
     const newReport = {
       id: "r" + Date.now(),
       dept,
-      week: "第 42 週",
+      week: latestWeek,
       author,
       submittedAt: new Date().toISOString().slice(0, 16).replace("T", " "),
       cases,
@@ -3373,7 +4606,7 @@ function WeeklyReport({ reports, setReports }) {
       nextWeek,
       keywords: extractKeywords(full),
     };
-    setReports([...reports.filter((r) => !(r.dept === dept && r.week === "第 42 週")), newReport]);
+    setReports([...reports.filter((r) => !(r.dept === dept && r.week === latestWeek)), newReport]);
     setCases("");
     setBlockers("");
     setNeedHelp("");
@@ -3411,7 +4644,7 @@ function WeeklyReport({ reports, setReports }) {
         </div>
         <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>本週週報填寫</h1>
         <div style={{ fontSize: 13, color: C.textMid, marginTop: 4 }}>
-          第 42 週 (10/14 – 10/20) · 請於週五下班前完成
+          {getLatestWeekDisplay(reports)} · 請於週五下班前完成
         </div>
       </div>
 
@@ -3498,9 +4731,9 @@ function WeeklyReport({ reports, setReports }) {
 
       {/* 已提交清單 */}
       <div style={{ marginTop: 24 }}>
-        <SectionTitle color={C.success}>本週已提交週報 ({reports.filter(r => r.week === "第 42 週").length}/3)</SectionTitle>
+        <SectionTitle color={C.success}>本週已提交週報 ({reports.filter(r => r.week === getLatestWeek(reports)).length}/3)</SectionTitle>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {reports.filter(r => r.week === "第 42 週").map((r) => (
+          {reports.filter(r => r.week === getLatestWeek(reports)).map((r) => (
             <Card key={r.id} style={{ padding: "12px 16px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
                 <div>
@@ -4001,7 +5234,7 @@ function History({ history }) {
         subtitle={viewCase && `${viewCase.date} · 負責人:${viewCase.owner} · ${viewCase.outcome}`}
         maxWidth={640}
       >
-        {viewCase && viewCase.detail && (
+        {viewCase && (
           <div>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 18 }}>
               {viewCase.tags.map((t) => (
@@ -4009,7 +5242,26 @@ function History({ history }) {
               ))}
             </div>
 
-            {[
+            {!viewCase.detail && (
+              <div style={{
+                padding: "16px 18px",
+                background: C.warnLight,
+                borderRadius: 6,
+                fontSize: 12,
+                color: "#6B4A1F",
+                marginBottom: 16,
+                lineHeight: 1.8,
+              }}>
+                ⚠️ 此案件詳情尚未載入。請至側邊欄底部點「重置範例資料」更新雲端內容。
+                <br />
+                <br />
+                <strong>基本資訊:</strong>
+                <br />
+                {viewCase.summary}
+              </div>
+            )}
+
+            {viewCase.detail && [
               { label: "案件背景", value: viewCase.detail.background },
               { label: "處理過程", value: viewCase.detail.process },
               { label: "估值與條件", value: viewCase.detail.valuation },
@@ -4030,7 +5282,7 @@ function History({ history }) {
               </div>
             ))}
 
-            {viewCase.detail.keyInsights && (
+            {viewCase.detail && viewCase.detail.keyInsights && (
               <div style={{ marginBottom: 16 }}>
                 <div style={{ fontSize: 12, color: C.textMid, marginBottom: 6, fontWeight: 500 }}>
                   關鍵洞察
@@ -4041,7 +5293,7 @@ function History({ history }) {
                   borderRadius: 6,
                   fontSize: 13,
                   lineHeight: 1.9,
-                  color: "#3C3489",
+                  color: "#4A3F70",
                 }}>
                   {viewCase.detail.keyInsights.map((k, i) => (
                     <div key={i}>• {k}</div>
@@ -4050,23 +5302,25 @@ function History({ history }) {
               </div>
             )}
 
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, color: C.textMid, marginBottom: 6, fontWeight: 500 }}>
-                結果
+            {viewCase.detail && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, color: C.textMid, marginBottom: 6, fontWeight: 500 }}>
+                  結果
+                </div>
+                <div style={{
+                  padding: "10px 12px",
+                  background: viewCase.outcome.includes("投資 ·") ? C.successLight : C.warnLight,
+                  borderRadius: 6,
+                  fontSize: 13,
+                  lineHeight: 1.7,
+                  color: viewCase.outcome.includes("投資 ·") ? C.success : "#6B4A1F",
+                }}>
+                  {viewCase.detail.result}
+                </div>
               </div>
-              <div style={{
-                padding: "10px 12px",
-                background: viewCase.outcome.includes("投資 ·") ? C.successLight : C.warnLight,
-                borderRadius: 6,
-                fontSize: 13,
-                lineHeight: 1.7,
-                color: viewCase.outcome.includes("投資 ·") ? C.success : "#7A4900",
-              }}>
-                {viewCase.detail.result}
-              </div>
-            </div>
+            )}
 
-            {viewCase.detail.lessons && (
+            {viewCase.detail && viewCase.detail.lessons && (
               <div style={{
                 marginTop: 18,
                 paddingTop: 14,
@@ -4132,8 +5386,8 @@ function BlockerAnalytics({ blockerHistory, reports }) {
   const overallMean = stats.mean(blockerHistory.map((h) => h.daysToResolve));
 
   // 當前週報中的活躍卡點(做對照)
-  const deptReports = reports.filter((r) => r.week === "第 42 週");
-  const blockerDaysMap = { 投資研究部: 14, 業務開發部: 5, 資產管理部: 9 };
+  const deptReports = reports.filter((r) => r.week === getLatestWeek(reports));
+  const blockerDaysMap = computeBlockerDaysByDept(reports);
   const activeBlockers = deptReports
     .filter((r) => r.blockers && r.blockers.trim())
     .map((r) => {
@@ -4888,8 +6142,9 @@ function Decisions({ decisions, setDecisions }) {
 // ============================================================
 // 員工負載熱力圖頁面
 // ============================================================
-function EmployeeLoad({ reports, handoffs }) {
+function EmployeeLoad({ reports, handoffs, decisions }) {
   const [selected, setSelected] = useState(null);
+  const [oneOnOneCard, setOneOnOneCard] = useState(null);
   const loads = useMemo(() => analyzeEmployeeLoad(reports, handoffs), [reports, handoffs]);
 
   const byDept = loads.reduce((acc, e) => {
@@ -5058,20 +6313,38 @@ function EmployeeLoad({ reports, handoffs }) {
                 ))}
               </div>
 
-              {/* 週報繳交狀態 */}
-              <div style={{
-                padding: "10px 12px",
-                background: selected.hasReport ? C.successLight : C.warnLight,
-                borderRadius: 6,
-                fontSize: 12,
-                color: selected.hasReport ? C.success : "#7A4900",
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-              }}>
-                {selected.hasReport ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
-                本週週報:{selected.hasReport ? "已繳交" : "尚未繳交"}
-              </div>
+              {/* 部門週報繳交狀態(週報以部門為單位,非個人) */}
+              {(() => {
+                const deptReport = reports.find((r) =>
+                  r.dept === selected.dept && r.week === getLatestWeek(reports)
+                );
+                const deptHasReport = !!deptReport;
+                const isAuthor = deptReport && deptReport.author === selected.name;
+                return (
+                  <div style={{
+                    padding: "10px 12px",
+                    background: deptHasReport ? C.successLight : C.warnLight,
+                    borderRadius: 6,
+                    fontSize: 12,
+                    color: deptHasReport ? C.success : "#6B4A1F",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}>
+                    {deptHasReport ? <CheckCircle2 size={14} /> : <AlertTriangle size={14} />}
+                    <div>
+                      <div>本週{selected.dept}週報:{deptHasReport ? "已繳交" : "尚未繳交"}</div>
+                      {deptHasReport && (
+                        <div style={{ fontSize: 10, opacity: 0.85, marginTop: 2 }}>
+                          {isAuthor
+                            ? "由本人代表部門填寫"
+                            : `由${deptReport.author}代表填寫`}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* B4. 員工成長追蹤 */}
               {(() => {
@@ -5200,9 +6473,247 @@ function EmployeeLoad({ reports, handoffs }) {
                   <strong>建議:</strong>此員工本週參與度偏低,建議主管了解原因(是否在做長期研究、或可接新任務)。
                 </div>
               )}
+
+              {/* C3. 產出 1-on-1 準備卡按鈕 */}
+              <div style={{
+                marginTop: 14,
+                paddingTop: 14,
+                borderTop: "1px solid " + C.borderLight,
+                display: "flex",
+                justifyContent: "center",
+              }}>
+                <Button
+                  variant="primary"
+                  icon={FileText}
+                  onClick={() => {
+                    setOneOnOneCard(generateOneOnOneCard(selected, reports, handoffs, decisions));
+                  }}
+                >
+                  📋 產出 1-on-1 準備卡
+                </Button>
+              </div>
             </div>
           );
         })()}
+      </Modal>
+
+      {/* C3. 1-on-1 準備卡 Modal */}
+      <Modal
+        open={!!oneOnOneCard}
+        onClose={() => setOneOnOneCard(null)}
+        title={oneOnOneCard ? `${oneOnOneCard.employee.name} 1-on-1 準備卡` : ""}
+        subtitle={oneOnOneCard ? `產出於 ${oneOnOneCard.generatedAt} · 適用於本週 1-on-1 對談` : ""}
+        maxWidth={680}
+      >
+        {oneOnOneCard && (
+          <div>
+            {/* 簡介 */}
+            <div style={{
+              padding: "12px 14px",
+              background: C.accentLight,
+              borderRadius: 6,
+              fontSize: 12,
+              color: C.accent,
+              marginBottom: 16,
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 10,
+            }}>
+              <Info size={14} style={{ marginTop: 2, flexShrink: 0 }} />
+              <div style={{ lineHeight: 1.7 }}>
+                此準備卡由系統根據該員工近期週報、交接、負載資料自動產出,
+                依據 Andy Grove《High Output Management》理念,協助主管做有準備的 1-on-1 對談。
+              </div>
+            </div>
+
+            {/* 近況概覽 */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 11, color: C.textLight, fontWeight: 500, marginBottom: 6 }}>
+                👤 近況概覽
+              </div>
+              <div style={{
+                padding: "12px 14px",
+                background: C.bg,
+                borderRadius: 6,
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr 1fr",
+                gap: 10,
+                fontSize: 12,
+              }}>
+                <div>
+                  <div style={{ color: C.textLight, fontSize: 10 }}>部門 / 職稱</div>
+                  <div style={{ fontWeight: 500 }}>{oneOnOneCard.employee.dept}</div>
+                  <div style={{ color: C.textMid, fontSize: 11 }}>{oneOnOneCard.employee.role}</div>
+                </div>
+                {oneOnOneCard.myLoad && (
+                  <div>
+                    <div style={{ color: C.textLight, fontSize: 10 }}>本週負載</div>
+                    <div style={{ fontWeight: 600 }}>
+                      {oneOnOneCard.myLoad.loadScore} 分
+                    </div>
+                    <Pill tone={
+                      oneOnOneCard.myLoad.level === "overload" ? "danger" :
+                      oneOnOneCard.myLoad.level === "high" ? "warn" :
+                      oneOnOneCard.myLoad.level === "normal" ? "teal" : "neutral"
+                    }>
+                      {loadLevelInfo(oneOnOneCard.myLoad.level).label}
+                    </Pill>
+                  </div>
+                )}
+                {oneOnOneCard.growth.hasData && (
+                  <div>
+                    <div style={{ color: C.textLight, fontSize: 10 }}>能力曲線</div>
+                    <div style={{ fontWeight: 500 }}>
+                      {oneOnOneCard.growth.growthDirection}
+                    </div>
+                    <div style={{ color: C.textMid, fontSize: 11 }}>
+                      {parseFloat(oneOnOneCard.growth.growthRate) > 0 ? "+" : ""}
+                      {oneOnOneCard.growth.growthRate}% (8 週)
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* 他在忙什麼 */}
+            {oneOnOneCard.cases && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: C.textLight, fontWeight: 500, marginBottom: 6 }}>
+                  💼 他在忙什麼(本週週報)
+                </div>
+                <div style={{
+                  padding: "10px 12px",
+                  background: C.bg,
+                  borderRadius: 6,
+                  fontSize: 12,
+                  lineHeight: 1.7,
+                  whiteSpace: "pre-wrap",
+                }}>
+                  {oneOnOneCard.cases}
+                </div>
+              </div>
+            )}
+
+            {/* 卡點 */}
+            {oneOnOneCard.blockers && oneOnOneCard.blockers.trim() && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: C.textLight, fontWeight: 500, marginBottom: 6 }}>
+                  ⚠️ 他遇到的卡點
+                </div>
+                <div style={{
+                  padding: "10px 12px",
+                  background: C.warnLight,
+                  borderRadius: 6,
+                  fontSize: 12,
+                  lineHeight: 1.7,
+                  color: "#7A4900",
+                }}>
+                  {oneOnOneCard.blockers}
+                </div>
+              </div>
+            )}
+
+            {/* 需協助 */}
+            {oneOnOneCard.needHelp && oneOnOneCard.needHelp.trim() && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: C.textLight, fontWeight: 500, marginBottom: 6 }}>
+                  🤝 他需要協助
+                </div>
+                <div style={{
+                  padding: "10px 12px",
+                  background: C.purpleLight,
+                  borderRadius: 6,
+                  fontSize: 12,
+                  lineHeight: 1.7,
+                  color: "#3C3489",
+                }}>
+                  {oneOnOneCard.needHelp}
+                </div>
+              </div>
+            )}
+
+            {/* 建議談話主題 */}
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: C.textLight, fontWeight: 500, marginBottom: 6 }}>
+                💬 系統推薦談話主題
+              </div>
+              <div style={{
+                padding: "12px 14px",
+                background: C.successLight,
+                borderRadius: 6,
+                border: "1px dashed " + C.success,
+              }}>
+                {oneOnOneCard.topics.map((t, i) => (
+                  <div key={i} style={{
+                    display: "flex",
+                    gap: 8,
+                    fontSize: 12,
+                    color: C.success,
+                    lineHeight: 1.7,
+                    marginBottom: i < oneOnOneCard.topics.length - 1 ? 6 : 0,
+                  }}>
+                    <span style={{ flexShrink: 0 }}>{t.icon}</span>
+                    <span>{t.text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* 歷史軌跡 */}
+            {oneOnOneCard.growth.hasData && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 11, color: C.textLight, fontWeight: 500, marginBottom: 6 }}>
+                  📈 歷史軌跡(過去 8 週)
+                </div>
+                <div style={{
+                  padding: "10px 12px",
+                  background: C.bg,
+                  borderRadius: 6,
+                  fontSize: 12,
+                  lineHeight: 1.7,
+                  color: C.textMid,
+                }}>
+                  任務複雜度:<strong>{oneOnOneCard.growth.earlyComplexity}</strong>
+                  → <strong>{oneOnOneCard.growth.lateComplexity}</strong>
+                  ({oneOnOneCard.growth.growthDirection} {parseFloat(oneOnOneCard.growth.growthRate) > 0 ? "+" : ""}{oneOnOneCard.growth.growthRate}%)
+                  · 共填寫 {oneOnOneCard.growth.totalReports} 份週報
+                </div>
+              </div>
+            )}
+
+            {/* 管理建議 */}
+            <div style={{
+              padding: "12px 14px",
+              background: "linear-gradient(135deg, #1F4E79 0%, #2E75B6 100%)",
+              borderRadius: 6,
+              fontSize: 12,
+              color: "white",
+              lineHeight: 1.8,
+              marginBottom: 16,
+            }}>
+              <strong>🎯 管理建議:</strong>
+              <br />
+              {oneOnOneCard.managementAdvice}
+            </div>
+
+            {/* 操作按鈕 */}
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <Button
+                variant="secondary"
+                icon={Paperclip}
+                onClick={() => {
+                  navigator.clipboard.writeText(oneOnOneCard.textVersion);
+                  alert("準備卡內容已複製到剪貼簿,可貼至 Notion 或筆記軟體");
+                }}
+              >
+                複製文字版
+              </Button>
+              <Button variant="primary" onClick={() => setOneOnOneCard(null)}>
+                完成
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
@@ -5532,11 +7043,628 @@ function OrgAnalytics({ reports, activityHistory }) {
 }
 
 // ============================================================
+// E 系列. 會議準備頁
+// ============================================================
+function MeetingPrep({ reports, handoffs, decisions, blockerHistory, customMeetings, setCustomMeetings, meetingHistory, setMeetingHistory }) {
+  const [selectedMeeting, setSelectedMeeting] = useState("weekly");
+  const [showAgenda, setShowAgenda] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [viewHistoryItem, setViewHistoryItem] = useState(null);
+
+  // 新增會議的表單 state
+  const [newMeeting, setNewMeeting] = useState({
+    title: "",
+    schedule: "",
+    audience: "",
+    duration: 60,
+    icon: "📋",
+    type: "custom",
+    notes: "",
+  });
+
+  const meetings = [
+    { id: "weekly", title: "管理層週會", schedule: "週一 09:00", icon: "📅", color: C.accent },
+    { id: "investment", title: "投資委員會", schedule: "週三 14:00", icon: "💼", color: C.purple },
+    { id: "operations", title: "營運會議", schedule: "週五 10:00", icon: "⚙️", color: C.success },
+    ...(customMeetings || []).map((m) => ({
+      id: m.id,
+      title: m.title,
+      schedule: m.schedule,
+      icon: m.icon || "📋",
+      color: C.highlight,
+      isCustom: true,
+      ...m,
+    })),
+  ];
+
+  const isPredefined = ["weekly", "investment", "operations"].includes(selectedMeeting);
+  const customMeetingData = customMeetings?.find((m) => m.id === selectedMeeting);
+
+  const currentMeeting = useMemo(() => {
+    if (isPredefined) {
+      return generateMeetingAgenda(selectedMeeting, reports, handoffs, decisions, blockerHistory);
+    }
+    if (customMeetingData) {
+      // 自訂會議的議程
+      const agenda = customMeetingData.agendaItems || [
+        {
+          title: "會議重點",
+          duration: customMeetingData.duration || 60,
+          bullets: customMeetingData.notes ? customMeetingData.notes.split("\n").filter((s) => s.trim()) : ["待補充議程內容"],
+          reasoning: "由使用者自訂的會議議題",
+          direction: "依會議主題討論",
+        },
+      ];
+      const lines = [];
+      lines.push(`【${customMeetingData.title} 議程】`);
+      lines.push(`時間:${customMeetingData.schedule}`);
+      lines.push(`與會:${customMeetingData.audience || "未指定"}`);
+      lines.push(`預估時長:${customMeetingData.duration || 60} 分鐘`);
+      lines.push("");
+      agenda.forEach((item, i) => {
+        lines.push(`${i + 1}. ${item.title} (${item.duration} 分鐘)`);
+        item.bullets.forEach((b) => lines.push(`   • ${b}`));
+        lines.push("");
+      });
+      return {
+        ...customMeetingData,
+        type: "custom",
+        agenda,
+        totalDuration: customMeetingData.duration || 60,
+        textVersion: lines.join("\n"),
+        hoursUntil: 0, // 自訂會議不計算
+      };
+    }
+    return null;
+  }, [selectedMeeting, reports, handoffs, decisions, blockerHistory, isPredefined, customMeetingData]);
+
+  // 新增會議
+  const handleAddMeeting = () => {
+    if (!newMeeting.title.trim() || !newMeeting.schedule.trim()) {
+      alert("請至少填寫會議名稱和時間");
+      return;
+    }
+    const id = "custom-" + Date.now();
+    const meeting = { ...newMeeting, id, createdAt: new Date().toISOString() };
+    setCustomMeetings([...(customMeetings || []), meeting]);
+    setSelectedMeeting(id);
+    setShowAddModal(false);
+    setNewMeeting({ title: "", schedule: "", audience: "", duration: 60, icon: "📋", type: "custom", notes: "" });
+  };
+
+  // 移除自訂會議
+  const handleDeleteCustom = (id) => {
+    if (!confirm("確定要移除這個自訂會議嗎?(會同步歸檔到歷史)")) return;
+    const meeting = customMeetings.find((m) => m.id === id);
+    if (meeting) {
+      // 歸檔到歷史
+      const archived = {
+        ...meeting,
+        archivedAt: new Date().toISOString().slice(0, 10),
+      };
+      setMeetingHistory([archived, ...(meetingHistory || [])]);
+    }
+    setCustomMeetings(customMeetings.filter((m) => m.id !== id));
+    if (selectedMeeting === id) setSelectedMeeting("weekly");
+  };
+
+  // 歸檔目前會議到歷史
+  const handleArchiveCurrent = () => {
+    if (!currentMeeting) return;
+    const archived = {
+      id: "archive-" + Date.now(),
+      title: currentMeeting.title,
+      schedule: currentMeeting.schedule,
+      audience: currentMeeting.audience,
+      icon: currentMeeting.icon,
+      archivedAt: new Date().toISOString().slice(0, 10),
+      agendaSnapshot: currentMeeting.agenda,
+      textSnapshot: currentMeeting.textVersion,
+    };
+    setMeetingHistory([archived, ...(meetingHistory || [])]);
+    alert(`「${currentMeeting.title}」議程快照已歸檔到歷史`);
+  };
+
+  return (
+    <div style={{ padding: "24px 28px", maxWidth: 980 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>
+            MEETING PREPARATION
+          </div>
+          <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0", color: C.text }}>
+            會議準備中心
+          </h1>
+          <div style={{ fontSize: 13, color: C.textMid, marginTop: 4 }}>
+            系統根據資料自動生成議程 · 援引 Andy Grove 會議準備理論
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <Button variant="secondary" icon={Search} size="sm" onClick={() => setShowHistory(true)}>
+            歷史紀錄 ({(meetingHistory || []).length})
+          </Button>
+          <Button variant="primary" icon={Plus} size="sm" onClick={() => setShowAddModal(true)}>
+            新增會議
+          </Button>
+        </div>
+      </div>
+
+      {/* 即將到來的會議列表 */}
+      <Card style={{ padding: 18, marginBottom: 16 }}>
+        <SectionTitle color={C.highlight} hint="自動偵測下次會議時間 · 點選查看議程">
+          📌 會議排程
+        </SectionTitle>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+          {meetings.map((m) => {
+            const isSelected = selectedMeeting === m.id;
+            const isCustom = m.isCustom;
+            let hoursUntil = 0;
+            if (!isCustom) {
+              const meetingData = generateMeetingAgenda(m.id, reports, handoffs, decisions, blockerHistory);
+              hoursUntil = meetingData?.hoursUntil || 0;
+            }
+            const urgency = isCustom ? null : (hoursUntil < 24 ? "imminent" : hoursUntil < 72 ? "soon" : "later");
+            const urgencyColor = urgency === "imminent" ? C.danger : urgency === "soon" ? C.warn : C.textMid;
+
+            return (
+              <div
+                key={m.id}
+                onClick={() => setSelectedMeeting(m.id)}
+                style={{
+                  padding: "14px 16px",
+                  background: isSelected ? m.color + "15" : C.bg,
+                  border: "2px solid " + (isSelected ? m.color : "transparent"),
+                  borderRadius: 10,
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                  position: "relative",
+                }}
+              >
+                {isCustom && (
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteCustom(m.id);
+                    }}
+                    style={{
+                      position: "absolute",
+                      top: 6,
+                      right: 6,
+                      fontSize: 14,
+                      color: C.textLight,
+                      cursor: "pointer",
+                      width: 18,
+                      height: 18,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      borderRadius: 4,
+                    }}
+                    title="移除並歸檔"
+                  >
+                    ×
+                  </div>
+                )}
+                <div style={{ fontSize: 18, marginBottom: 4 }}>{m.icon}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 2, paddingRight: isCustom ? 16 : 0 }}>
+                  {m.title}
+                  {isCustom && <span style={{ fontSize: 9, color: C.highlight, marginLeft: 6 }}>自訂</span>}
+                </div>
+                <div style={{ fontSize: 11, color: C.textMid, marginBottom: 6 }}>
+                  {m.schedule}
+                </div>
+                {!isCustom && (
+                  <div style={{ fontSize: 10, color: urgencyColor, fontWeight: 500 }}>
+                    ⏱ {hoursUntil} 小時後
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+
+      {/* 選定會議的議程 */}
+      {currentMeeting && (
+        <Card style={{ padding: 22 }}>
+          <div style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            marginBottom: 16,
+            paddingBottom: 14,
+            borderBottom: "1px solid " + C.borderLight,
+          }}>
+            <div>
+              <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1, marginBottom: 4 }}>
+                AGENDA · 議程
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: C.text }}>
+                {currentMeeting.icon} {currentMeeting.title}
+              </div>
+              <div style={{ fontSize: 12, color: C.textMid, marginTop: 4 }}>
+                {currentMeeting.schedule} · 預計 {currentMeeting.totalDuration} 分鐘
+                {currentMeeting.audience && ` · 與會:${currentMeeting.audience}`}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <Button
+                variant="secondary"
+                icon={Paperclip}
+                size="sm"
+                onClick={() => {
+                  navigator.clipboard.writeText(currentMeeting.textVersion);
+                  alert("議程內容已複製到剪貼簿,可貼至 LINE / Email");
+                }}
+              >
+                複製
+              </Button>
+              <Button
+                variant="primary"
+                icon={Check}
+                size="sm"
+                onClick={handleArchiveCurrent}
+              >
+                歸檔
+              </Button>
+            </div>
+          </div>
+
+          {/* 議程項目 */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {currentMeeting.agenda.map((item, i) => (
+              <div
+                key={i}
+                style={{
+                  padding: "14px 16px",
+                  background: C.bg,
+                  borderRadius: 8,
+                  border: "1px solid " + C.borderLight,
+                  borderLeft: "3px solid " + C.highlight,
+                }}
+              >
+                <div style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "flex-start",
+                  marginBottom: 8,
+                }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
+                      {i + 1}. {item.title}
+                    </div>
+                  </div>
+                  <Pill tone="highlight">⏱ {item.duration} 分鐘</Pill>
+                </div>
+
+                {/* 議題重點 */}
+                <ul style={{ marginTop: 6, marginBottom: 8, paddingLeft: 20 }}>
+                  {item.bullets.map((b, j) => (
+                    <li key={j} style={{
+                      fontSize: 12,
+                      color: C.textMid,
+                      lineHeight: 1.7,
+                      marginBottom: 2,
+                    }}>
+                      {b}
+                    </li>
+                  ))}
+                </ul>
+
+                {item.reasoning && (
+                  <div style={{
+                    fontSize: 11,
+                    color: C.textLight,
+                    fontStyle: "italic",
+                    marginBottom: 6,
+                    padding: "4px 8px",
+                    background: "rgba(184, 84, 80, 0.04)",
+                    borderRadius: 4,
+                  }}>
+                    💭 為什麼討論:{item.reasoning}
+                  </div>
+                )}
+
+                {item.direction && (
+                  <div style={{
+                    fontSize: 11,
+                    color: C.accent,
+                    padding: "6px 10px",
+                    background: C.accentLight,
+                    borderRadius: 4,
+                    fontWeight: 500,
+                  }}>
+                    → 建議方向:{item.direction}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* 方法論引用(僅預定義會議顯示) */}
+          {isPredefined && (
+            <div style={{
+              marginTop: 16,
+              padding: "12px 14px",
+              background: C.bg,
+              border: "1px solid " + C.borderLight,
+              borderRadius: 6,
+              fontSize: 11,
+              color: C.textMid,
+              lineHeight: 1.8,
+            }}>
+              <strong style={{ color: C.text }}>📚 方法論引用:</strong>
+              本系統會議準備援引 Andy Grove《High Output Management》:「<em>會議的價值取決於準備品質,
+              一個準備充分的 1 小時會議勝過 3 個漫無目的的 2 小時會議。</em>」
+              並結合 Amazon「6 頁備忘錄文化」——讓與會者進場前已知道議題、背景與決議方向。
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* 新增會議 Modal */}
+      <Modal
+        open={showAddModal}
+        onClose={() => setShowAddModal(false)}
+        title="新增會議"
+        subtitle="建立自訂會議,讓系統幫您整理議程"
+        maxWidth={520}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div>
+            <label style={{ fontSize: 11, color: C.textMid, fontWeight: 500, display: "block", marginBottom: 4 }}>
+              會議名稱 <span style={{ color: C.danger }}>*</span>
+            </label>
+            <input
+              type="text"
+              value={newMeeting.title}
+              onChange={(e) => setNewMeeting({ ...newMeeting, title: e.target.value })}
+              placeholder="例:Q4 策略討論會"
+              style={{
+                width: "100%",
+                padding: "9px 12px",
+                border: "1px solid " + C.border,
+                borderRadius: 6,
+                fontSize: 13,
+                fontFamily: "inherit",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: 11, color: C.textMid, fontWeight: 500, display: "block", marginBottom: 4 }}>
+              時間 <span style={{ color: C.danger }}>*</span>
+            </label>
+            <input
+              type="text"
+              value={newMeeting.schedule}
+              onChange={(e) => setNewMeeting({ ...newMeeting, schedule: e.target.value })}
+              placeholder="例:11/05 週三 14:00"
+              style={{
+                width: "100%",
+                padding: "9px 12px",
+                border: "1px solid " + C.border,
+                borderRadius: 6,
+                fontSize: 13,
+                fontFamily: "inherit",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: 11, color: C.textMid, fontWeight: 500, display: "block", marginBottom: 4 }}>
+              與會者
+            </label>
+            <input
+              type="text"
+              value={newMeeting.audience}
+              onChange={(e) => setNewMeeting({ ...newMeeting, audience: e.target.value })}
+              placeholder="例:董事長、投研部主管、業務經理"
+              style={{
+                width: "100%",
+                padding: "9px 12px",
+                border: "1px solid " + C.border,
+                borderRadius: 6,
+                fontSize: 13,
+                fontFamily: "inherit",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div>
+              <label style={{ fontSize: 11, color: C.textMid, fontWeight: 500, display: "block", marginBottom: 4 }}>
+                預估時長(分鐘)
+              </label>
+              <input
+                type="number"
+                value={newMeeting.duration}
+                onChange={(e) => setNewMeeting({ ...newMeeting, duration: parseInt(e.target.value) || 60 })}
+                style={{
+                  width: "100%",
+                  padding: "9px 12px",
+                  border: "1px solid " + C.border,
+                  borderRadius: 6,
+                  fontSize: 13,
+                  fontFamily: "inherit",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: C.textMid, fontWeight: 500, display: "block", marginBottom: 4 }}>
+                圖示
+              </label>
+              <select
+                value={newMeeting.icon}
+                onChange={(e) => setNewMeeting({ ...newMeeting, icon: e.target.value })}
+                style={{
+                  width: "100%",
+                  padding: "9px 12px",
+                  border: "1px solid " + C.border,
+                  borderRadius: 6,
+                  fontSize: 13,
+                  fontFamily: "inherit",
+                  boxSizing: "border-box",
+                }}
+              >
+                <option value="📋">📋 一般</option>
+                <option value="💰">💰 財務</option>
+                <option value="📊">📊 報告</option>
+                <option value="🎯">🎯 策略</option>
+                <option value="🤝">🤝 對外</option>
+                <option value="🎓">🎓 教育訓練</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label style={{ fontSize: 11, color: C.textMid, fontWeight: 500, display: "block", marginBottom: 4 }}>
+              議程要點(每行一項)
+            </label>
+            <textarea
+              value={newMeeting.notes}
+              onChange={(e) => setNewMeeting({ ...newMeeting, notes: e.target.value })}
+              placeholder={"例:\nQ4 業務目標檢視\n各部門資源分配\n11 月人員配置"}
+              rows={4}
+              style={{
+                width: "100%",
+                padding: "9px 12px",
+                border: "1px solid " + C.border,
+                borderRadius: 6,
+                fontSize: 13,
+                fontFamily: "inherit",
+                boxSizing: "border-box",
+                resize: "vertical",
+              }}
+            />
+          </div>
+
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 4 }}>
+            <Button variant="secondary" onClick={() => setShowAddModal(false)}>
+              取消
+            </Button>
+            <Button variant="primary" icon={Check} onClick={handleAddMeeting}>
+              建立會議
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* 歷史紀錄 Modal */}
+      <Modal
+        open={showHistory}
+        onClose={() => setShowHistory(false)}
+        title="會議歷史紀錄"
+        subtitle={`共 ${(meetingHistory || []).length} 筆已歸檔會議`}
+        maxWidth={600}
+      >
+        {(!meetingHistory || meetingHistory.length === 0) ? (
+          <div style={{ padding: 30, textAlign: "center", color: C.textLight, fontSize: 13 }}>
+            尚無歷史紀錄。完成的會議可透過上方「歸檔」按鈕儲存議程快照。
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: "60vh", overflowY: "auto" }}>
+            {meetingHistory.map((h) => (
+              <Card
+                key={h.id}
+                style={{ padding: "12px 14px", cursor: "pointer" }}
+                onClick={() => setViewHistoryItem(h)}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
+                    {h.icon || "📋"} {h.title}
+                  </div>
+                  <span style={{ fontSize: 10, color: C.textLight }}>{h.archivedAt}</span>
+                </div>
+                <div style={{ fontSize: 11, color: C.textMid }}>
+                  {h.schedule} {h.audience && `· ${h.audience}`}
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </Modal>
+
+      {/* 查看歷史紀錄詳情 */}
+      <Modal
+        open={!!viewHistoryItem}
+        onClose={() => setViewHistoryItem(null)}
+        title={viewHistoryItem ? `${viewHistoryItem.icon || "📋"} ${viewHistoryItem.title}` : ""}
+        subtitle={viewHistoryItem && `歸檔於 ${viewHistoryItem.archivedAt}`}
+        maxWidth={620}
+      >
+        {viewHistoryItem && (
+          <div>
+            <div style={{
+              padding: "10px 12px",
+              background: C.bg,
+              borderRadius: 6,
+              fontSize: 12,
+              color: C.textMid,
+              marginBottom: 14,
+            }}>
+              <div>📅 時間:{viewHistoryItem.schedule}</div>
+              {viewHistoryItem.audience && <div>👥 與會:{viewHistoryItem.audience}</div>}
+            </div>
+
+            {viewHistoryItem.agendaSnapshot && viewHistoryItem.agendaSnapshot.length > 0 && (
+              <div>
+                <div style={{ fontSize: 11, color: C.textLight, fontWeight: 500, marginBottom: 8 }}>
+                  📋 當時議程
+                </div>
+                {viewHistoryItem.agendaSnapshot.map((item, i) => (
+                  <div key={i} style={{
+                    padding: "10px 12px",
+                    background: C.bg,
+                    borderRadius: 6,
+                    marginBottom: 6,
+                    borderLeft: "2px solid " + C.highlight,
+                  }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 4 }}>
+                      {i + 1}. {item.title}
+                    </div>
+                    <ul style={{ margin: 0, paddingLeft: 18, fontSize: 11, color: C.textMid }}>
+                      {item.bullets.map((b, j) => <li key={j}>{b}</li>)}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {viewHistoryItem.textSnapshot && (
+              <div style={{ marginTop: 14, display: "flex", justifyContent: "flex-end" }}>
+                <Button
+                  variant="secondary"
+                  icon={Paperclip}
+                  size="sm"
+                  onClick={() => {
+                    navigator.clipboard.writeText(viewHistoryItem.textSnapshot);
+                    alert("議程已複製");
+                  }}
+                >
+                  複製議程文字
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+// ============================================================
 // LINE Bot 模擬
 // ============================================================
 function LineBot({ reports, handoffs }) {
   const unsigned = handoffs.filter((h) => h.status === "待簽收");
-  const deptReports = reports.filter((r) => r.week === "第 42 週");
+  const deptReports = reports.filter((r) => r.week === getLatestWeek(reports));
   const missing = ["投資研究部", "業務開發部", "資產管理部"].filter(
     (d) => !deptReports.find((r) => r.dept === d)
   );
@@ -5682,6 +7810,8 @@ export default function App() {
   const [reports, setReports] = useState(SEED_REPORTS);
   const [handoffs, setHandoffs] = useState(SEED_HANDOFFS);
   const [decisions, setDecisions] = useState(SEED_DECISIONS);
+  const [customMeetings, setCustomMeetings] = useState([]);
+  const [meetingHistory, setMeetingHistory] = useState([]);
   const [history] = useState(SEED_HISTORY);
   const [blockerHistory] = useState(SEED_BLOCKER_HISTORY);
   const [topicHistory] = useState(SEED_TOPIC_HISTORY);
@@ -5707,14 +7837,18 @@ export default function App() {
     (async () => {
       setSyncStatus("syncing");
       try {
-        const [r, h, d] = await Promise.all([
+        const [r, h, d, cm, mh] = await Promise.all([
           fetchCollection("reports", SEED_REPORTS),
           fetchCollection("handoffs", SEED_HANDOFFS),
           fetchCollection("decisions", SEED_DECISIONS),
+          fetchCollection("customMeetings", []),
+          fetchCollection("meetingHistory", []),
         ]);
         setReports(r);
         setHandoffs(h);
         setDecisions(d);
+        setCustomMeetings(cm);
+        setMeetingHistory(mh);
         setSyncStatus("idle");
       } catch (err) {
         console.error("Firebase load failed:", err);
@@ -5752,6 +7886,18 @@ export default function App() {
       );
     }
   }, [decisions, dataLoaded, authUser]);
+
+  useEffect(() => {
+    if (dataLoaded && authUser) {
+      saveCollection("customMeetings", customMeetings);
+    }
+  }, [customMeetings, dataLoaded, authUser]);
+
+  useEffect(() => {
+    if (dataLoaded && authUser) {
+      saveCollection("meetingHistory", meetingHistory);
+    }
+  }, [meetingHistory, dataLoaded, authUser]);
 
   const navigateTo = (t, id) => {
     setTab(t);
@@ -5842,6 +7988,7 @@ export default function App() {
     { id: "history", label: "歷史搜尋", icon: Search, roles: ["admin", "manager"] },
     { id: "analytics", label: "卡點分析", icon: BarChart3, roles: ["admin", "manager"] },
     { id: "orgnetwork", label: "組織分析", icon: TrendingUp, roles: ["admin"] },
+    { id: "meetings", label: "會議準備", icon: Calendar, roles: ["admin"] },
     { id: "linebot", label: "LINE Bot", icon: MessageCircle, roles: ["admin", "manager", "member"] },
   ];
   const tabs = allTabs.filter((t) => t.roles.includes(userProfile?.role || "member"));
@@ -6106,10 +8253,20 @@ export default function App() {
         {currentTab === "report" && <WeeklyReport reports={reports} setReports={setReports} />}
         {currentTab === "handoff" && <Handoff handoffs={handoffs} setHandoffs={setHandoffs} focusId={focusHandoffId} />}
         {currentTab === "decisions" && <Decisions decisions={decisions} setDecisions={setDecisions} />}
-        {currentTab === "employees" && <EmployeeLoad reports={reports} handoffs={handoffs} />}
+        {currentTab === "employees" && <EmployeeLoad reports={reports} handoffs={handoffs} decisions={decisions} />}
         {currentTab === "history" && <History history={history} />}
         {currentTab === "analytics" && <BlockerAnalytics blockerHistory={blockerHistory} reports={reports} />}
         {currentTab === "orgnetwork" && <OrgAnalytics reports={reports} activityHistory={activityHistory} />}
+        {currentTab === "meetings" && <MeetingPrep
+          reports={reports}
+          handoffs={handoffs}
+          decisions={decisions}
+          blockerHistory={blockerHistory}
+          customMeetings={customMeetings}
+          setCustomMeetings={setCustomMeetings}
+          meetingHistory={meetingHistory}
+          setMeetingHistory={setMeetingHistory}
+        />}
         {currentTab === "linebot" && <LineBot reports={reports} handoffs={handoffs} />}
       </main>
     </div>
