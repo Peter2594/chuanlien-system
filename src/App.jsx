@@ -5473,10 +5473,137 @@ function Handoff({ handoffs, setHandoffs, focusId, departments = SEED_DEPARTMENT
 // ============================================================
 // 歷史案件搜尋
 // ============================================================
-function History({ history, handoffs = [], decisions = [], reports = [] }) {
+function History({ history, setHistory, handoffs = [], decisions = [], reports = [], userProfile }) {
   const [q, setQ] = useState("FinTech 新創 Pre-A 估值");
   const [viewCase, setViewCase] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
+  const [mode, setMode] = useState("list"); // "list" | "create"
+  const emptyForm = {
+    title: "", date: "", tags: "", summary: "", owner: "",
+    outcome: "觀望",
+    background: "", process: "", valuation: "",
+    keyInsights: "", result: "", lessons: "",
+  };
+  const [form, setForm] = useState(emptyForm);
+
+  const outcomeOptions = ["投資 · 報酬率 1.5x", "投資 · 仍持有", "觀望", "未投資", "其他"];
+
+  const submitCase = () => {
+    if (!form.title.trim() || !form.date.trim()) return;
+    const newCase = {
+      id: "k" + Date.now(),
+      title: form.title.trim(),
+      date: form.date.trim(),
+      tags: form.tags.split(/[,，\s]+/).map((t) => t.trim()).filter(Boolean),
+      summary: form.summary.trim(),
+      owner: form.owner.trim() || (userProfile?.displayName || "未指定"),
+      handoffs: 0,
+      outcome: form.outcome,
+      detail: {
+        background: form.background.trim(),
+        process: form.process.trim(),
+        valuation: form.valuation.trim(),
+        keyInsights: form.keyInsights.split("\n").map((s) => s.trim()).filter(Boolean),
+        result: form.result.trim(),
+        lessons: form.lessons.trim(),
+      },
+      createdBy: userProfile?.email || "",
+      createdAt: new Date().toISOString(),
+    };
+    setHistory([newCase, ...history]);
+    setForm(emptyForm);
+    setMode("list");
+    setQ(newCase.tags[0] || "");
+  };
+
+  const inputStyle = {
+    width: "100%", padding: "9px 12px", border: "1px solid #D8D5CC",
+    borderRadius: 6, fontSize: 13, fontFamily: "inherit",
+    background: "#FFFFFF", resize: "vertical", boxSizing: "border-box",
+  };
+  const labelStyle = { fontSize: 12, color: "#6E6862", marginBottom: 5, fontWeight: 500, display: "block" };
+
+  if (mode === "create") {
+    const canSubmit = form.title.trim() && form.date.trim();
+    return (
+      <div style={{ padding: "24px 28px", maxWidth: 760 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20 }}>
+          <div>
+            <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>NEW CASE</div>
+            <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>新增歷史案件</h1>
+          </div>
+          <Button variant="ghost" onClick={() => setMode("list")}>取消</Button>
+        </div>
+        <Card style={{ padding: 22 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+            <div>
+              <label style={labelStyle}>案件名稱 *</label>
+              <input type="text" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}
+                placeholder="例：A 公司 Pre-A 輪投資評估" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>時間 *</label>
+              <input type="text" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })}
+                placeholder="例：2025-Q1" style={inputStyle} />
+            </div>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={labelStyle}>標籤（逗號或空格分隔）</label>
+            <input type="text" value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })}
+              placeholder="例：FinTech, Pre-A, SaaS, 估值" style={inputStyle} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
+            <div>
+              <label style={labelStyle}>負責人</label>
+              <input type="text" value={form.owner} onChange={(e) => setForm({ ...form, owner: e.target.value })}
+                placeholder="例：周世倫" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>結論</label>
+              <select value={form.outcome} onChange={(e) => setForm({ ...form, outcome: e.target.value })}
+                style={{ ...inputStyle, cursor: "pointer" }}>
+                {outcomeOptions.map((o) => <option key={o}>{o}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{ marginBottom: 14 }}>
+            <label style={labelStyle}>摘要</label>
+            <textarea rows={2} value={form.summary} onChange={(e) => setForm({ ...form, summary: e.target.value })}
+              placeholder="一句話描述此案件重點" style={inputStyle} />
+          </div>
+
+          <div style={{ borderTop: "1px solid " + C.borderLight, paddingTop: 16, marginTop: 4, marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: C.textMid, marginBottom: 12 }}>案件詳情（選填）</div>
+            {[
+              { key: "background", label: "案件背景", placeholder: "標的背景、接觸來源、時間點" },
+              { key: "process", label: "處理過程", placeholder: "盡調流程、交接次數、主要工作內容" },
+              { key: "valuation", label: "估值與條件", placeholder: "估值方法、投資金額、持股比例" },
+              { key: "result", label: "結果", placeholder: "最終結論與執行成效" },
+              { key: "lessons", label: "本案經驗", placeholder: "對未來案件的啟示或注意事項" },
+            ].map((f) => (
+              <div key={f.key} style={{ marginBottom: 12 }}>
+                <label style={labelStyle}>{f.label}</label>
+                <textarea rows={2} value={form[f.key]} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
+                  placeholder={f.placeholder} style={inputStyle} />
+              </div>
+            ))}
+            <div style={{ marginBottom: 12 }}>
+              <label style={labelStyle}>關鍵洞察（每行一條）</label>
+              <textarea rows={3} value={form.keyInsights}
+                onChange={(e) => setForm({ ...form, keyInsights: e.target.value })}
+                placeholder={"客戶留存率 94%，遠高於同業\n毛利率 72%，符合成熟 SaaS 標準\n創辦人有 12 年產業經驗"}
+                style={inputStyle} />
+            </div>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <Button variant="secondary" onClick={() => setMode("list")}>取消</Button>
+            <Button variant="primary" onClick={submitCase} disabled={!canSubmit} icon={Plus}>儲存案件</Button>
+          </div>
+        </Card>
+      </div>
+    );
+  }
 
   const getRelated = (item) => {
     const terms = [
@@ -5532,12 +5659,15 @@ function History({ history, handoffs = [], decisions = [], reports = [] }) {
 
   return (
     <div style={{ padding: "24px 28px", maxWidth: 820 }}>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>CASE HISTORY</div>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>歷史案件搜尋</h1>
-        <div style={{ fontSize: 13, color: C.textMid, marginTop: 4 }}>
-          共 {history.length} 筆案件 · 基於關鍵字比對排序
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20 }}>
+        <div>
+          <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>CASE HISTORY</div>
+          <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>歷史案件搜尋</h1>
+          <div style={{ fontSize: 13, color: C.textMid, marginTop: 4 }}>
+            共 {history.length} 筆案件 · 基於關鍵字比對排序
+          </div>
         </div>
+        <Button variant="primary" icon={Plus} onClick={() => setMode("create")}>新增案件</Button>
       </div>
 
       <Card style={{ padding: 18, marginBottom: 14 }}>
@@ -8443,6 +8573,71 @@ const BotAction = ({ children }) => (
 // ============================================================
 // 主容器
 // ============================================================
+// ============================================================
+// 從真實資料衍生歷史統計(取代靜態 SEED 資料)
+// 保留 SEED 作為歷史基線，真實資料逐步覆蓋對應週次
+// ============================================================
+
+function deriveActivityHistory(reports, fallback) {
+  if (!reports || reports.length === 0) return fallback;
+  const countBullets = (text) => {
+    if (!text || !text.trim()) return 0;
+    const lines = text.split("\n").filter((l) => /^[\s]*[•\-*]/.test(l));
+    return lines.length || 1;
+  };
+  const realData = reports.map((r) => ({
+    week: parseInt(r.week) || 0,
+    dept: r.dept,
+    cases: Math.max(1, countBullets(r.cases)),
+    blockers: r.blockers?.trim() ? Math.max(1, countBullets(r.blockers)) : 0,
+    helpRequests: r.needHelp?.trim() ? Math.max(1, countBullets(r.needHelp)) : 0,
+  })).filter((d) => d.week > 0);
+  const realWeeks = new Set(realData.map((d) => d.week));
+  const seedFiltered = fallback.filter((d) => !realWeeks.has(d.week));
+  return [...seedFiltered, ...realData].sort((a, b) => a.week - b.week);
+}
+
+function deriveTopicHistory(reports, fallback) {
+  if (!reports || reports.length === 0) return fallback;
+  const byWeek = {};
+  reports.forEach((r) => {
+    const wk = parseInt(r.week);
+    if (!wk) return;
+    if (!byWeek[wk]) byWeek[wk] = new Set();
+    (r.keywords || []).forEach((kw) => byWeek[wk].add(kw));
+  });
+  const realData = Object.entries(byWeek).map(([week, topics]) => ({
+    week: parseInt(week),
+    topics: Array.from(topics),
+  }));
+  const realWeeks = new Set(realData.map((d) => d.week));
+  const seedFiltered = fallback.filter((d) => !realWeeks.has(d.week));
+  return [...seedFiltered, ...realData].sort((a, b) => a.week - b.week);
+}
+
+function deriveBlockerHistory(blockers, fallback) {
+  const resolved = (blockers || []).filter(
+    (b) => b.status === "resolved" && b.resolvedAt && b.createdAt
+  );
+  if (resolved.length === 0) return fallback;
+  const realHistory = resolved.map((b) => {
+    const days = Math.max(1, Math.round(
+      (new Date(b.resolvedAt) - new Date(b.createdAt)) / (1000 * 60 * 60 * 24)
+    ));
+    return {
+      id: b.id,
+      category: b.category || "其他",
+      daysToResolve: days,
+      title: b.title || "",
+      dept: b.dept || "",
+      weekNum: parseInt(b.weekId) || 42,
+      caseSize: b.caseSize || "M",
+      source: "real",
+    };
+  });
+  return [...fallback, ...realHistory].sort((a, b) => a.weekNum - b.weekNum);
+}
+
 export default function App() {
   // ===== 驗證狀態 =====
   const [authUser, setAuthUser] = useState(null);
@@ -8461,10 +8656,10 @@ export default function App() {
   const [auditLogs, setAuditLogs] = useState([]);
   const [customMeetings, setCustomMeetings] = useState([]);
   const [meetingHistory, setMeetingHistory] = useState([]);
-  const [history] = useState(SEED_HISTORY);
-  const [blockerHistory] = useState(SEED_BLOCKER_HISTORY);
-  const [topicHistory] = useState(SEED_TOPIC_HISTORY);
-  const [activityHistory] = useState(SEED_REPORT_ACTIVITY);
+  const [history, setHistory] = useState(SEED_HISTORY);
+  const blockerHistory = useMemo(() => deriveBlockerHistory(blockers, SEED_BLOCKER_HISTORY), [blockers]);
+  const topicHistory = useMemo(() => deriveTopicHistory(reports, SEED_TOPIC_HISTORY), [reports]);
+  const activityHistory = useMemo(() => deriveActivityHistory(reports, SEED_REPORT_ACTIVITY), [reports]);
   const [dataLoaded, setDataLoaded] = useState(false);
   const [syncStatus, setSyncStatus] = useState("idle"); // idle | syncing | error
 
@@ -8549,7 +8744,7 @@ export default function App() {
     (async () => {
       setSyncStatus("syncing");
       try {
-        const [r, h, d, b, emp, deptRows, userRows, cm, mh, logs] = await Promise.all([
+        const [r, h, d, b, emp, deptRows, userRows, cm, mh, logs, hist] = await Promise.all([
           fetchDocumentCollection("reports", SEED_REPORTS),
           fetchDocumentCollection("handoffs", SEED_HANDOFFS),
           fetchDocumentCollection("decisions", SEED_DECISIONS),
@@ -8560,6 +8755,7 @@ export default function App() {
           fetchDocumentCollection("customMeetings", []),
           fetchDocumentCollection("meetingHistory", []),
           fetchDocumentCollection("auditLogs", []),
+          fetchDocumentCollection("history", SEED_HISTORY),
         ]);
         setReports(r);
         setHandoffs(h);
@@ -8571,29 +8767,8 @@ export default function App() {
         setCustomMeetings(cm);
         setMeetingHistory(mh);
         setAuditLogs(logs);
+        setHistory(hist.length ? hist : SEED_HISTORY);
         setSyncStatus("idle");
-
-        // 偵測雲端歷史搜尋資料是否為舊版(缺 detail 欄位)
-        // 如果是,主動提示使用者點重置
-        try {
-          const histCheck = await fetchDocumentCollection("history", []);
-          const needsReset = histCheck.length > 0 && histCheck.every((h) => !h.detail);
-          if (needsReset) {
-            setTimeout(() => {
-              if (window.confirm("偵測到雲端為舊版資料(缺少案件詳情)。\n是否立即重置範例資料以套用最新版?\n\n注意:會清空目前所有資料。")) {
-                setReports(SEED_REPORTS);
-                setHandoffs(SEED_HANDOFFS);
-                setDecisions(SEED_DECISIONS);
-                setBlockers(SEED_BLOCKERS);
-                setEmployees(SEED_EMPLOYEES);
-                setDepartments(SEED_DEPARTMENTS);
-                setUsers(SEED_USERS);
-              }
-            }, 1000);
-          }
-        } catch (e) {
-          // 偵測失敗不影響主流程
-        }
       } catch (err) {
         console.error("Firebase load failed:", err);
         setSyncStatus("error");
@@ -8657,6 +8832,12 @@ export default function App() {
       saveDocumentCollection("employees", employees);
     }
   }, [employees, dataLoaded, authUser]);
+
+  useEffect(() => {
+    if (dataLoaded && authUser) {
+      saveDocumentCollection("history", history);
+    }
+  }, [history, dataLoaded, authUser]);
 
   useEffect(() => {
     if (dataLoaded && authUser) {
@@ -9053,7 +9234,7 @@ export default function App() {
         {currentTab === "handoff" && <Handoff handoffs={handoffs} setHandoffs={setHandoffsAudited} focusId={focusHandoffId} departments={departments} userProfile={userProfile} />}
         {currentTab === "decisions" && <Decisions decisions={decisions} setDecisions={setDecisionsAudited} departments={departments} userProfile={userProfile} />}
         {currentTab === "employees" && <EmployeeLoad reports={reports} handoffs={handoffs} decisions={decisions} employees={employees} />}
-        {currentTab === "history" && <History history={history} handoffs={handoffs} decisions={decisions} reports={reports} />}
+        {currentTab === "history" && <History history={history} setHistory={setHistory} handoffs={handoffs} decisions={decisions} reports={reports} userProfile={userProfile} />}
         {currentTab === "analytics" && <BlockerAnalytics blockerHistory={blockerHistory} blockers={blockers} reports={reports} />}
         {currentTab === "orgnetwork" && <OrgAnalytics reports={reports} activityHistory={activityHistory} departments={departments} />}
         {currentTab === "meetings" && <MeetingPrep
