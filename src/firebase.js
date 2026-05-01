@@ -103,12 +103,26 @@ export const fetchDocumentCollection = async (collectionName, fallback = []) => 
   }
 };
 
+const makeStableDocId = (collectionName, item, index) => {
+  const raw = item.id || item.employeeId || item.userId || item.email || item.name || `${collectionName}-${index}`;
+  return String(raw)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\u4e00-\u9fa5_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    || `${collectionName}-${index}`;
+};
+
 export const saveDocumentCollection = async (collectionName, value) => {
   try {
     const ref = collection(db, "companies", COMPANY_ID, collectionName);
     const snap = await getDocs(ref);
     const batch = writeBatch(db);
-    const nextIds = new Set(value.map((item) => item.id).filter(Boolean));
+    const normalized = value.map((item, index) => ({
+      ...item,
+      id: makeStableDocId(collectionName, item, index),
+    }));
+    const nextIds = new Set(normalized.map((item) => item.id).filter(Boolean));
 
     snap.docs.forEach((item) => {
       if (!nextIds.has(item.id)) {
@@ -116,8 +130,7 @@ export const saveDocumentCollection = async (collectionName, value) => {
       }
     });
 
-    value.forEach((item) => {
-      if (!item.id) return;
+    normalized.forEach((item) => {
       const itemRef = doc(db, "companies", COMPANY_ID, collectionName, item.id);
       batch.set(itemRef, item, { merge: true });
     });
@@ -131,9 +144,9 @@ export const saveDocumentCollection = async (collectionName, value) => {
 };
 
 // ============================================================
-// 角色判斷
-// 根據 email 自動推斷角色,初期簡化版
-// 日後若公司規模變大,可改為從 Firestore users collection 讀取
+// 角色常數
+// 正式權限來源應由 companies/{companyId}/users/{userId} 或後端驗證提供。
+// inferUserProfile 只作為無使用者資料時的安全 fallback,不可當正式授權。
 // ============================================================
 export const ROLES = {
   ADMIN: "admin",       // 管理層:看全部、可下決策
@@ -147,7 +160,7 @@ export const ROLE_LABELS = {
   member: "一般員工",
 };
 
-// 從 email 推斷角色 + 部門
+// 安全 fallback:未知帳號一律給 member,避免陌生 email 變成 admin。
 export const inferUserProfile = (email) => {
   if (!email) return { role: ROLES.MEMBER, dept: "未知" };
   const lower = email.toLowerCase();
@@ -155,7 +168,7 @@ export const inferUserProfile = (email) => {
   let role = ROLES.MEMBER;
   let dept = "未指定";
 
-  if (lower.startsWith("admin")) {
+  if (lower === "admin@test.com" || lower.startsWith("admin@")) {
     role = ROLES.ADMIN;
     dept = "營運與管理層";
   } else if (lower.startsWith("manager")) {
@@ -167,10 +180,6 @@ export const inferUserProfile = (email) => {
   } else if (lower.startsWith("member")) {
     role = ROLES.MEMBER;
     dept = "業務開發部"; // 預設
-  } else {
-    // 兼容舊測試帳號
-    role = ROLES.ADMIN;
-    dept = "營運與管理層";
   }
 
   // 從 email 推斷顯示名稱

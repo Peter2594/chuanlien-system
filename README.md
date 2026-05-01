@@ -180,17 +180,60 @@ project/
 - 分類只是「初步關鍵字分類」,可人工覆蓋；不是 NLP,也不是正式風控或績效模型。
 - Demo 歷史卡點是固定右偏範例資料,用來展示統計介面,不是企業真實資料。
 
+## 🧱 非 LINE Bot 的正式化調整
+
+LINE Bot 目前仍保留前端推播預覽,尚未串接 Messaging API、Webhook 或排程服務。除此之外,這版已先把幾個容易被問爆的 demo 設計收斂掉:
+
+- `reports`, `handoffs`, `decisions`, `blockers`, `customMeetings`, `meetingHistory` 改用 `companies/{companyId}/{collection}/{documentId}` 的單筆 document collection,不再把主要資料整包 array 寫進同一份 shared document。
+- `employees`, `departments`, `users` 也改成 Firestore collection seed,前端只保留 demo fallback,方便後續由 HR 或管理者維護組織資料。
+- 未知 email 不再預設為管理層；角色優先讀 `users` collection,讀不到時才用安全 fallback 並給一般員工權限。
+- 週報填寫支援 0 到多筆卡點,卡點數量異常改看實際 blocker 筆數,不再用標點符號切句硬算。
+- 新增 client-side `auditLogs` collection,記錄主要資料的 create/update/delete、actor、before/after、時間。這是 prototype 可追蹤版本；正式不可竄改 audit log 仍應放到後端或 Cloud Functions。
+- 員工負載與管理提醒已改成中性措辭,定位為「管理提醒訊號」,不直接當作績效、人事或心理狀態判斷。
+
 ### Firestore rules 範本
 
-目前專案仍是 React + Firebase prototype,正式導入前應再做後端不可竄改 audit log。臨時測試可用較寬鬆規則,但若要限制 blockers collection,可參考:
+目前專案仍是 React + Firebase prototype,正式導入前應再做後端不可竄改 audit log。不要把正式環境維持在 `allow read, write: if request.auth != null`。較合理的方向是用 `users` collection 管角色與部門:
 
 ```js
-match /companies/{companyId}/blockers/{blockerId} {
-  allow read, write: if request.auth != null;
+function signedIn() {
+  return request.auth != null;
+}
+
+function userDoc(companyId) {
+  return get(/databases/$(database)/documents/companies/$(companyId)/users/$(request.auth.uid));
+}
+
+function role(companyId) {
+  return userDoc(companyId).data.role;
+}
+
+function dept(companyId) {
+  return userDoc(companyId).data.dept;
+}
+
+match /companies/{companyId}/users/{userId} {
+  allow read: if signedIn() && (role(companyId) == "admin" || request.auth.uid == userId);
+  allow write: if signedIn() && role(companyId) == "admin";
+}
+
+match /companies/{companyId}/reports/{reportId} {
+  allow read: if signedIn() && (
+    role(companyId) == "admin" ||
+    resource.data.dept == dept(companyId)
+  );
+  allow write: if signedIn() && (
+    role(companyId) == "admin" ||
+    request.resource.data.dept == dept(companyId)
+  );
+}
+
+match /companies/{companyId}/{collectionName}/{docId} {
+  allow read, write: if signedIn() && role(companyId) == "admin";
 }
 ```
 
-正式版應再依 `users`、`roles`、`departments`、`managerRelations` 限制讀寫範圍。
+實際部署時還要依 `managerRelations`、資料保存期限、匯出權限與審計需求再細分。
 
 ---
 
@@ -200,7 +243,7 @@ match /companies/{companyId}/blockers/{blockerId} {
 → 到 Firebase Console → Authentication → Users 確認帳號真的存在,密碼至少 6 字
 
 **Q: 登入後一直轉圈圈**
-→ 可能是 Firestore 規則沒設定。到 Firebase → Firestore → 規則,確認有 `allow read, write: if request.auth != null`
+→ 可能是 Firestore 規則沒設定。Demo 測試可暫時放寬,但正式或共享環境請改用上面的角色/部門規則方向,不要長期使用全登入者可讀寫。
 
 **Q: 同步狀態顯示「同步失敗」**
 → 點旁邊的「重試」按鈕。如果一直失敗,檢查網路或 Firebase 規則

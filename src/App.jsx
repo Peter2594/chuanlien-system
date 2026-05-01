@@ -31,12 +31,9 @@ import Login from "./Login.jsx";
 import {
   watchAuth,
   logout,
-  fetchCollection,
-  saveCollection,
   fetchDocumentCollection,
   saveDocumentCollection,
   inferUserProfile,
-  ROLES,
   ROLE_LABELS,
 } from "./firebase.js";
 
@@ -1167,6 +1164,21 @@ const SEED_REPORT_ACTIVITY = (() => {
   return data;
 })();
 
+const SEED_DEPARTMENTS = [
+  { id: "ops", name: "營運與管理層", shortName: "管理層", active: true },
+  { id: "research", name: "投資研究部", shortName: "投研部", active: true },
+  { id: "biz", name: "業務開發部", shortName: "業開部", active: true },
+  { id: "asset", name: "資產管理部", shortName: "資管部", active: true },
+];
+
+const SEED_USERS = [
+  { id: "admin-test", email: "admin@test.com", role: "admin", dept: "營運與管理層", displayName: "Admin", active: true },
+  { id: "manager-research", email: "manager-research@test.com", role: "manager", dept: "投資研究部", displayName: "Research Manager", active: true },
+  { id: "manager-biz", email: "manager-biz@test.com", role: "manager", dept: "業務開發部", displayName: "Biz Manager", active: true },
+  { id: "manager-asset", email: "manager-asset@test.com", role: "manager", dept: "資產管理部", displayName: "Asset Manager", active: true },
+  { id: "member-test", email: "member@test.com", role: "member", dept: "業務開發部", displayName: "Member", active: true },
+];
+
 // ============================================================
 // 統計分析模組
 // ============================================================
@@ -1419,8 +1431,8 @@ function getLatestWeekDisplay(reports) {
 // 比對某部門本週活動量(協助請求、卡點)是否偏離過去 8 週歷史平均
 // 使用 z-score:當 z ≥ 1.5 時觸發警示
 // ============================================================
-function detectReportAnomaly(currentReports, activityHistory, blockers = []) {
-  const depts = ["投資研究部", "業務開發部", "資產管理部"];
+function detectReportAnomaly(currentReports, activityHistory, blockers = [], departments = SEED_DEPARTMENTS) {
+  const depts = activeDeptNames(departments);
   const anomalies = [];
   const currentWeek = currentReports[0]?.week || CURRENT_WEEK_ID;
   const openCurrentBlockers = blockers.filter(
@@ -1520,7 +1532,7 @@ function detectChronicTopics(topicHistory, currentTopics, threshold = 3) {
 // 員工負載分析
 // 從 reports + handoffs 計算每個人的工作負載
 // ============================================================
-const KNOWN_EMPLOYEES = [
+const SEED_EMPLOYEES = [
   // 營運與管理層
   { name: "吳君", dept: "營運與管理層", role: "董事長" },
   { name: "陳文翰", dept: "營運與管理層", role: "營運總監(COO)" },
@@ -1547,11 +1559,19 @@ const KNOWN_EMPLOYEES = [
   { name: "邱筱慧", dept: "資產管理部", role: "風險管理專員" },
 ];
 
-function analyzeEmployeeLoad(reports, handoffs) {
+function activeDeptNames(departments = SEED_DEPARTMENTS) {
+  return departments.filter((d) => d.active !== false && d.name !== "營運與管理層").map((d) => d.name);
+}
+
+function allDeptNames(departments = SEED_DEPARTMENTS) {
+  return departments.filter((d) => d.active !== false).map((d) => d.name);
+}
+
+function analyzeEmployeeLoad(reports, handoffs, employees = SEED_EMPLOYEES) {
   const latestWeek = getLatestWeek(reports);
   const currentReports = reports.filter((r) => r.week === latestWeek);
 
-  return KNOWN_EMPLOYEES.map((emp) => {
+  return employees.map((emp) => {
     // 1. 本人是否有填寫週報
     const ownReport = currentReports.find((r) => r.author === emp.name);
 
@@ -1621,16 +1641,14 @@ function loadLevelInfo(level) {
 // B1. 部門互動網絡分析
 // 從週報文字中找「我提到別的部門」的次數,建立鄰接矩陣
 // ============================================================
-function analyzeDeptNetwork(reports) {
-  const depts = ["投資研究部", "業務開發部", "資產管理部"];
-  const deptShortMap = {
-    "投研部": "投資研究部",
-    "業開部": "業務開發部",
-    "資管部": "資產管理部",
-    "投資研究部": "投資研究部",
-    "業務開發部": "業務開發部",
-    "資產管理部": "資產管理部",
-  };
+function analyzeDeptNetwork(reports, departments = SEED_DEPARTMENTS) {
+  const depts = activeDeptNames(departments);
+  const deptShortMap = departments.reduce((map, dept) => {
+    if (dept.active === false) return map;
+    map[dept.name] = dept.name;
+    if (dept.shortName) map[dept.shortName] = dept.name;
+    return map;
+  }, {});
   // 鄰接矩陣 matrix[from][to] = count
   const matrix = {};
   depts.forEach((d) => {
@@ -1679,8 +1697,8 @@ function analyzeDeptNetwork(reports) {
 // B2. 趨勢預警(時間序列預測)
 // 用線性回歸外推預測下週活動量、卡點數
 // ============================================================
-function predictNextWeek(activityHistory) {
-  const depts = ["投資研究部", "業務開發部", "資產管理部"];
+function predictNextWeek(activityHistory, departments = SEED_DEPARTMENTS) {
+  const depts = activeDeptNames(departments);
   const predictions = [];
 
   depts.forEach((dept) => {
@@ -1881,9 +1899,9 @@ function analyzeEmployeeGrowth(employee, reports) {
 // C1. 員工關懷提醒
 // 偵測需要管理層主動關心的員工狀況
 // ============================================================
-function detectCareAlerts(reports, handoffs) {
+function detectCareAlerts(reports, handoffs, employees = SEED_EMPLOYEES, departments = SEED_DEPARTMENTS) {
   const alerts = [];
-  const loads = analyzeEmployeeLoad(reports, handoffs);
+  const loads = analyzeEmployeeLoad(reports, handoffs, employees);
 
   // 計算每個員工在過去幾週的負載趨勢(從實際 reports 動態抓最新 8 週)
   const allWeeks = [...new Set(reports.map((r) => r.week))].sort((a, b) => {
@@ -1893,7 +1911,7 @@ function detectCareAlerts(reports, handoffs) {
   });
   const weeks = allWeeks.slice(-8);
 
-  KNOWN_EMPLOYEES.forEach((emp) => {
+  employees.forEach((emp) => {
     const currentLoad = loads.find((l) => l.name === emp.name);
     if (!currentLoad) return;
 
@@ -1965,7 +1983,7 @@ function detectCareAlerts(reports, handoffs) {
 
   // === 部門層級警示:部門未繳週報 ===
   // 週報是部門代表填,所以在「部門」層級偵測,而不是「員工」層級
-  const deptList = ["投資研究部", "業務開發部", "資產管理部"];
+  const deptList = activeDeptNames(departments);
   deptList.forEach((dept) => {
     const recentDeptReports = weeks.slice(-3).map((w) =>
       reports.find((r) => r.dept === dept && r.week === w)
@@ -1992,7 +2010,7 @@ function detectCareAlerts(reports, handoffs) {
 // ============================================================
 // C2. 慶祝里程碑偵測
 // ============================================================
-function detectMilestones(reports, handoffs, decisions) {
+function detectMilestones(reports, handoffs, decisions, departments = SEED_DEPARTMENTS) {
   const milestones = [];
   const today = new Date();
 
@@ -2034,7 +2052,7 @@ function detectMilestones(reports, handoffs, decisions) {
 
   // 3. 本週週報全部繳齊
   const thisWeekReports = reports.filter((r) => r.week === getLatestWeek(reports));
-  const expectedDepts = ["投資研究部", "業務開發部", "資產管理部"];
+  const expectedDepts = activeDeptNames(departments);
   const submittedDepts = expectedDepts.filter((d) =>
     thisWeekReports.find((r) => r.dept === d)
   );
@@ -2087,8 +2105,8 @@ function detectMilestones(reports, handoffs, decisions) {
 // C3. 1-on-1 準備卡產出
 // 為主管產出與某員工 1-on-1 對談的完整準備內容
 // ============================================================
-function generateOneOnOneCard(employee, reports, handoffs, decisions) {
-  const loads = analyzeEmployeeLoad(reports, handoffs);
+function generateOneOnOneCard(employee, reports, handoffs, decisions, employees = SEED_EMPLOYEES) {
+  const loads = analyzeEmployeeLoad(reports, handoffs, employees);
   const myLoad = loads.find((l) => l.name === employee.name);
   const growth = analyzeEmployeeGrowth(employee, reports);
 
@@ -2162,7 +2180,7 @@ function generateOneOnOneCard(employee, reports, handoffs, decisions) {
   // 管理建議
   let managementAdvice = "";
   if (myLoad?.level === "overload") {
-    managementAdvice = "此員工負載過高,優先處理過載問題,避免 burnout 導致離職風險。";
+    managementAdvice = "此員工負載偏高,建議主管確認工作負載、資源分配與近期支援需求。";
   } else if (myLoad?.level === "idle") {
     managementAdvice = "此員工本週參與度偏低,主動關心並評估是否可接新挑戰。";
   } else if (growth.hasData && growth.growthDirection === "成長") {
@@ -2232,12 +2250,12 @@ function generateOneOnOneCard(employee, reports, handoffs, decisions) {
 }
 
 // ============================================================
-// F 系列. 離職風險預測
+// F 系列. 工作負載管理提醒
 // 加權求和模型 (Weighted Sum Scoring)
-// 綜合多項指標計算員工離職風險指數
+// 綜合多項 proxy 訊號產生管理提醒,不可作為人事或績效判斷。
 // ============================================================
-function predictTurnoverRisk(reports, handoffs) {
-  const loads = analyzeEmployeeLoad(reports, handoffs);
+function predictTurnoverRisk(reports, handoffs, employees = SEED_EMPLOYEES) {
+  const loads = analyzeEmployeeLoad(reports, handoffs, employees);
   // 從實際 reports 動態抓最新 8 週,而不是寫死
   const allWeeks = [...new Set(reports.map((r) => r.week))].sort((a, b) => {
     const na = parseInt((a.match(/\d+/) || [0])[0]);
@@ -2247,7 +2265,7 @@ function predictTurnoverRisk(reports, handoffs) {
   const weeks = allWeeks.slice(-8);
   const results = [];
 
-  KNOWN_EMPLOYEES.forEach((emp) => {
+  employees.forEach((emp) => {
     if (emp.dept === "營運與管理層") return; // 管理層不評估
 
     const myLoad = loads.find((l) => l.name === emp.name);
@@ -2348,16 +2366,16 @@ function predictTurnoverRisk(reports, handoffs) {
     let level, recommendation;
     if (totalRisk >= 60) {
       level = "critical";
-      recommendation = "高度離職風險。建議本週內董事長親自 1-on-1,評估加薪、調整職責、或長假;同步開始備援人選佈署。";
+      recommendation = "工作活動量與負載提醒偏高。建議本週內安排 1-on-1,確認工作量、資源分配與是否需要調整優先順序。";
     } else if (totalRisk >= 40) {
       level = "high";
-      recommendation = "中高風險。本週末前安排 1-on-1,評估減壓措施(分派工作、調整時程、給予肯定)。";
+      recommendation = "管理提醒偏高。本週末前安排 1-on-1,評估是否需要分派工作、調整時程或補充資源。";
     } else if (totalRisk >= 20) {
       level = "medium";
-      recommendation = "中等風險。下週內找機會關心,確認其工作狀態與長期規劃。";
+      recommendation = "管理提醒中等。下週內找機會關心,確認近期工作狀態與支援需求。";
     } else {
       level = "low";
-      recommendation = "風險可控。維持現有管理頻率即可。";
+      recommendation = "目前訊號穩定。維持現有管理頻率即可。";
     }
 
     results.push({
@@ -2369,7 +2387,7 @@ function predictTurnoverRisk(reports, handoffs) {
     });
   });
 
-  // 只回傳有風險的員工(>= 20 分)
+  // 只回傳有管理提醒訊號的員工(>= 20 分)
   return results.filter((r) => r.totalRisk >= 20).sort((a, b) => b.totalRisk - a.totalRisk);
 }
 
@@ -2377,7 +2395,7 @@ function predictTurnoverRisk(reports, handoffs) {
 // E 系列. 會議準備模組
 // 根據系統資料動態生成會議議程
 // ============================================================
-function generateMeetingAgenda(meetingType, reports, handoffs, decisions, blockerHistory, blockers = []) {
+function generateMeetingAgenda(meetingType, reports, handoffs, decisions, blockerHistory, blockers = [], employees = SEED_EMPLOYEES, departments = SEED_DEPARTMENTS) {
   const today = new Date();
   const dayOfWeek = today.getDay();
 
@@ -2449,13 +2467,13 @@ function generateMeetingAgenda(meetingType, reports, handoffs, decisions, blocke
     }
 
     // 3. 員工狀況關注
-    const careAlerts = detectCareAlerts(reports, handoffs);
+    const careAlerts = detectCareAlerts(reports, handoffs, employees, departments);
     if (careAlerts.length > 0) {
       agenda.push({
         title: "員工狀況關注",
         duration: 8,
         bullets: careAlerts.slice(0, 3).map((a) => `${a.employee.name}:${a.title.replace(a.employee.name + " ", "")}`),
-        reasoning: "管理是「人」的學問,主動關心可預防 burnout 與離職",
+        reasoning: "管理是「人」的學問,主動關心可確認工作負載與資源分配是否合理",
         direction: "指派各主管於本週末前完成 1-on-1",
       });
     }
@@ -2533,7 +2551,7 @@ function generateMeetingAgenda(meetingType, reports, handoffs, decisions, blocke
     });
   } else if (meetingType === "operations") {
     // 營運會議
-    const network = analyzeDeptNetwork(reports);
+    const network = analyzeDeptNetwork(reports, departments);
     agenda.push({
       title: "三部門本週進度同步",
       duration: 15,
@@ -2871,7 +2889,7 @@ const SectionTitle = ({ children, color = C.purple, hint }) => (
 // 管理層待決事項彙整
 // 從各種資料來源抽取「需要管理層親自處理」的事項
 // ============================================================
-function collectActionItems({ reports, handoffs, blockers, blockerHistory, decisions, topicHistory, activityHistory }) {
+function collectActionItems({ reports, handoffs, blockers, blockerHistory, decisions, topicHistory, activityHistory, employees = SEED_EMPLOYEES }) {
   const items = [];
   const deptReports = reports.filter((r) => r.week === getLatestWeek(reports));
 
@@ -2933,7 +2951,7 @@ function collectActionItems({ reports, handoffs, blockers, blockerHistory, decis
   });
 
   // 4. 過載員工
-  const loads = analyzeEmployeeLoad(reports, handoffs);
+  const loads = analyzeEmployeeLoad(reports, handoffs, employees);
   loads.filter((l) => l.level === "overload").forEach((l) => {
     items.push({
       id: "overload-" + l.name,
@@ -2970,7 +2988,7 @@ function collectActionItems({ reports, handoffs, blockers, blockerHistory, decis
 // ============================================================
 // 週會 Briefing 自動產出
 // ============================================================
-function generateWeeklyBriefing({ reports, handoffs, blockers, blockerHistory, decisions, topicHistory, actionItems }) {
+function generateWeeklyBriefing({ reports, handoffs, blockers, blockerHistory, decisions, topicHistory, actionItems, employees = SEED_EMPLOYEES }) {
   const latestWeek = getLatestWeek(reports);
   const deptReports = reports.filter((r) => r.week === latestWeek);
   const unsigned = handoffs.filter((h) => h.status === "待簽收");
@@ -3029,7 +3047,7 @@ function generateWeeklyBriefing({ reports, handoffs, blockers, blockerHistory, d
   }
 
   // 員工負載
-  const loads = analyzeEmployeeLoad(reports, handoffs);
+  const loads = analyzeEmployeeLoad(reports, handoffs, employees);
   const overload = loads.filter((l) => l.level === "overload");
   const idle = loads.filter((l) => l.level === "idle" || l.level === "low");
   lines.push("📈 員工負載狀況");
@@ -3050,7 +3068,7 @@ function generateWeeklyBriefing({ reports, handoffs, blockers, blockerHistory, d
 // ============================================================
 // Dashboard 頁面
 // ============================================================
-function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, blockerHistory, decisions, topicHistory, activityHistory, onNav, userProfile }) {
+function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, blockerHistory, decisions, employees, departments, topicHistory, activityHistory, onNav, userProfile }) {
   const [viewReport, setViewReport] = useState(null);
   const [viewTopic, setViewTopic] = useState(null);
   const [viewBlocker, setViewBlocker] = useState(null);
@@ -3063,6 +3081,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
   const latestWeekRaw = getLatestWeek(reports);
   const latestWeek = getLatestWeekDisplay(reports);
   const deptReports = reports.filter((r) => r.week === latestWeekRaw);
+  const deptNames = activeDeptNames(departments);
   const unsigned = handoffs.filter((h) => h.status === "待簽收");
 
   // 共同議題計算(跨部門關鍵字交集)
@@ -3081,8 +3100,8 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
 
   // 週報異常偵測
   const reportAnomalies = useMemo(
-    () => detectReportAnomaly(deptReports, activityHistory, allBlockers),
-    [deptReports, activityHistory, allBlockers]
+    () => detectReportAnomaly(deptReports, activityHistory, allBlockers, departments),
+    [deptReports, activityHistory, allBlockers, departments]
   );
 
   // 慢性議題偵測(連續 3+ 週出現)
@@ -3114,32 +3133,32 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
 
   // 管理層待決事項(只給 admin 看)
   const actionItems = useMemo(
-    () => isAdmin ? collectActionItems({ reports, handoffs, blockers: allBlockers, blockerHistory, decisions, topicHistory, activityHistory }) : [],
-    [isAdmin, reports, handoffs, allBlockers, blockerHistory, decisions, topicHistory, activityHistory]
+    () => isAdmin ? collectActionItems({ reports, handoffs, blockers: allBlockers, blockerHistory, decisions, topicHistory, activityHistory, employees }) : [],
+    [isAdmin, reports, handoffs, allBlockers, blockerHistory, decisions, topicHistory, activityHistory, employees]
   );
 
   // C1. 員工關懷提醒(只給 admin)
   const careAlerts = useMemo(
-    () => isAdmin ? detectCareAlerts(reports, handoffs) : [],
-    [isAdmin, reports, handoffs]
+    () => isAdmin ? detectCareAlerts(reports, handoffs, employees, departments) : [],
+    [isAdmin, reports, handoffs, employees, departments]
   );
 
   // C2. 慶祝里程碑(只給 admin)
   const milestones = useMemo(
-    () => isAdmin ? detectMilestones(reports, handoffs, decisions) : [],
-    [isAdmin, reports, handoffs, decisions]
+    () => isAdmin ? detectMilestones(reports, handoffs, decisions, departments) : [],
+    [isAdmin, reports, handoffs, decisions, departments]
   );
 
-  // F 系列. 離職風險預測(只給 admin)
+  // F 系列. 工作負載管理提醒(只給 admin)
   const turnoverRisks = useMemo(
-    () => isAdmin ? predictTurnoverRisk(reports, handoffs) : [],
-    [isAdmin, reports, handoffs]
+    () => isAdmin ? predictTurnoverRisk(reports, handoffs, employees) : [],
+    [isAdmin, reports, handoffs, employees]
   );
 
   // Briefing 文字
   const briefingText = useMemo(
-    () => isAdmin ? generateWeeklyBriefing({ reports, handoffs, blockers: allBlockers, blockerHistory, decisions, topicHistory, actionItems }) : "",
-    [isAdmin, reports, handoffs, allBlockers, blockerHistory, decisions, topicHistory, actionItems]
+    () => isAdmin ? generateWeeklyBriefing({ reports, handoffs, blockers: allBlockers, blockerHistory, decisions, topicHistory, actionItems, employees }) : "",
+    [isAdmin, reports, handoffs, allBlockers, blockerHistory, decisions, topicHistory, actionItems, employees]
   );
 
   // 標題客製化(依角色)
@@ -3447,7 +3466,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
         </Card>
       )}
 
-      {/* F 系列. 離職風險預測(管理層專屬,最高機密) */}
+      {/* F 系列. 工作負載管理提醒(管理層專屬) */}
       {isAdmin && turnoverRisks.length > 0 && (
         <Card style={{
           padding: 18,
@@ -3478,10 +3497,10 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
             <div style={{ fontSize: 18 }}>🚨</div>
             <div>
               <div style={{ fontSize: 14, fontWeight: 700, color: "#F8F6F0" }}>
-                離職風險預測 (F 系列)
+                工作負載管理提醒 (F 系列)
               </div>
               <div style={{ fontSize: 11, color: "#B8B3AA" }}>
-                加權求和模型 · 提前識別關鍵人才流失風險
+                加權求和模型 · 提醒主管確認工作負載與資源配置
               </div>
             </div>
           </div>
@@ -3493,9 +3512,9 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                 r.level === "high" ? "#D49648" :
                 r.level === "medium" ? "#D4B448" : "#A0AAB0";
               const riskLabel =
-                r.level === "critical" ? "高度風險" :
-                r.level === "high" ? "中高風險" :
-                r.level === "medium" ? "中等風險" : "低風險";
+                r.level === "critical" ? "高度提醒" :
+                r.level === "high" ? "中高提醒" :
+                r.level === "medium" ? "中等提醒" : "低度提醒";
 
               return (
                 <div
@@ -3576,7 +3595,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                 color: "#A09B92",
                 marginTop: 4,
               }}>
-                還有 {turnoverRisks.length - 3} 位員工有風險(請點員工負載頁查看完整分析)
+                還有 {turnoverRisks.length - 3} 位員工有管理提醒訊號(請點員工負載頁查看完整分析)
               </div>
             )}
           </div>
@@ -3665,7 +3684,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
             { label: "進行中案件", value: deptReports.reduce((s, r) => s + (r.cases || "").split(/[•\n]/).filter(c => c.trim()).length, 0), color: C.text, series: caseSeries, lineColor: C.accent },
             { label: "跨部門卡點", value: activeBlockers.length, color: C.warn, series: blockerSeries, lineColor: C.warn },
             { label: "未閉環交接", value: unsigned.length, color: C.danger, series: handoffSeries, lineColor: C.danger },
-            { label: "週報完成率", value: `${deptReports.length}/3`, color: C.success, series: reportSeries, lineColor: C.success },
+            { label: "週報完成率", value: `${deptReports.length}/${deptNames.length}`, color: C.success, series: reportSeries, lineColor: C.success },
           ];
 
           return cards.map((s) => (
@@ -3976,7 +3995,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
       <Card style={{ padding: 18, marginTop: 16 }}>
         <SectionTitle color={C.accent}>本週各部門週報</SectionTitle>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-          {["投資研究部", "業務開發部", "資產管理部"].map((dept) => {
+          {deptNames.map((dept) => {
             const r = deptReports.find((x) => x.dept === dept);
             const clickable = !!r;
             return (
@@ -4722,8 +4741,9 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
 // ============================================================
 // 週報填寫
 // ============================================================
-function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userProfile }) {
-  const [dept, setDept] = useState("投資研究部");
+function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userProfile, departments = SEED_DEPARTMENTS }) {
+  const deptNames = activeDeptNames(departments);
+  const [dept, setDept] = useState(deptNames[0] || "");
   const [author, setAuthor] = useState("");
   const [cases, setCases] = useState("");
   const [needHelp, setNeedHelp] = useState("");
@@ -4738,6 +4758,12 @@ function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userPro
     categoryTouched: false,
   });
   const [blockerDrafts, setBlockerDrafts] = useState([emptyBlockerDraft()]);
+
+  useEffect(() => {
+    if (!deptNames.includes(dept)) {
+      setDept(deptNames[0] || "");
+    }
+  }, [dept, deptNames]);
 
   const extractKeywords = (text) => {
     const pool = ["A 新創", "B 公司", "C 標的", "D 客戶", "E 標的", "FinTech", "SaaS", "Pre-A", "A 輪", "Q4", "募資", "盡調", "NDA", "法遵", "競品", "估值", "產業分析"];
@@ -4768,6 +4794,9 @@ function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userPro
       needHelp,
       nextWeek,
       keywords: extractKeywords(full),
+      createdBy: userProfile?.email || author,
+      updatedBy: userProfile?.email || author,
+      updatedAt: now,
     };
     const newBlockers = validBlockers.map((b, idx) => {
       const text = `${b.title}\n${b.description}`;
@@ -4863,9 +4892,9 @@ function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userPro
               onChange={(e) => setDept(e.target.value)}
               style={{ ...inputStyle, cursor: "pointer" }}
             >
-              <option>投資研究部</option>
-              <option>業務開發部</option>
-              <option>資產管理部</option>
+              {deptNames.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
             </select>
           </div>
           <div>
@@ -5052,14 +5081,17 @@ function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userPro
 // ============================================================
 // 交接檢核表
 // ============================================================
-function Handoff({ handoffs, setHandoffs, focusId }) {
+function Handoff({ handoffs, setHandoffs, focusId, departments = SEED_DEPARTMENTS, userProfile }) {
   const [mode, setMode] = useState(focusId ? "view" : "list");
   const [currentId, setCurrentId] = useState(focusId || null);
+  const deptNames = activeDeptNames(departments);
+  const defaultFrom = deptNames[1] || deptNames[0] || "";
+  const defaultTo = deptNames[0] || "";
 
   // 新建表單狀態
   const [form, setForm] = useState({
-    from: "業開部",
-    to: "投研部",
+    from: defaultFrom,
+    to: defaultTo,
     title: "",
     background: "",
     progress: "",
@@ -5078,8 +5110,8 @@ function Handoff({ handoffs, setHandoffs, focusId }) {
 
   const resetForm = () =>
     setForm({
-      from: "業開部",
-      to: "投研部",
+      from: defaultFrom,
+      to: defaultTo,
       title: "",
       background: "",
       progress: "",
@@ -5088,6 +5120,15 @@ function Handoff({ handoffs, setHandoffs, focusId }) {
       sender: "",
       receiver: "",
     });
+
+  useEffect(() => {
+    if (!deptNames.length) return;
+    setForm((prev) => ({
+      ...prev,
+      from: deptNames.includes(prev.from) ? prev.from : defaultFrom,
+      to: deptNames.includes(prev.to) ? prev.to : defaultTo,
+    }));
+  }, [departments]);
 
   const isComplete = (f) =>
     f.title.trim() && f.background.trim() && f.progress.trim() && f.todo.trim() && f.sender.trim() && f.receiver.trim();
@@ -5108,6 +5149,9 @@ function Handoff({ handoffs, setHandoffs, focusId }) {
       sender: form.sender,
       receiver: form.receiver,
       createdAt: new Date().toISOString().slice(0, 10),
+      createdBy: userProfile?.email || form.sender,
+      updatedBy: userProfile?.email || form.sender,
+      updatedAt: new Date().toISOString(),
       hoursOverdue: 0,
     };
     setHandoffs([...handoffs, newH]);
@@ -5116,7 +5160,7 @@ function Handoff({ handoffs, setHandoffs, focusId }) {
   };
 
   const signOff = (id) => {
-    setHandoffs(handoffs.map((h) => (h.id === id ? { ...h, status: "已簽收" } : h)));
+    setHandoffs(handoffs.map((h) => (h.id === id ? { ...h, status: "已簽收", updatedBy: userProfile?.email || h.receiver, updatedAt: new Date().toISOString() } : h)));
     setMode("list");
   };
 
@@ -5154,18 +5198,18 @@ function Handoff({ handoffs, setHandoffs, focusId }) {
             <div>
               <label style={labelStyle}>交接方</label>
               <select value={form.from} onChange={(e) => setForm({ ...form, from: e.target.value })} style={{ ...inputStyle, cursor: "pointer" }}>
-                <option>業開部</option>
-                <option>投研部</option>
-                <option>資管部</option>
+                {deptNames.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
               </select>
             </div>
             <div style={{ paddingBottom: 10, color: C.textLight }}>→</div>
             <div>
               <label style={labelStyle}>接手方</label>
               <select value={form.to} onChange={(e) => setForm({ ...form, to: e.target.value })} style={{ ...inputStyle, cursor: "pointer" }}>
-                <option>投研部</option>
-                <option>業開部</option>
-                <option>資管部</option>
+                {deptNames.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -5885,17 +5929,27 @@ function BlockerAnalytics({ blockerHistory, blockers = [], reports = [] }) {
 // ============================================================
 // 決策追蹤頁面
 // ============================================================
-function Decisions({ decisions, setDecisions }) {
+function Decisions({ decisions, setDecisions, departments = SEED_DEPARTMENTS, userProfile }) {
   const [mode, setMode] = useState("list");
   const [viewing, setViewing] = useState(null);
+  const deptNames = allDeptNames(departments);
+  const defaultAssignedDept = activeDeptNames(departments)[0] || deptNames[0] || "";
   const [form, setForm] = useState({
     title: "",
     content: "",
     decidedBy: "董事會",
-    assignedDept: "投資研究部",
+    assignedDept: defaultAssignedDept,
     dueDate: "",
     notes: "",
   });
+
+  useEffect(() => {
+    if (!deptNames.length) return;
+    setForm((prev) => ({
+      ...prev,
+      assignedDept: deptNames.includes(prev.assignedDept) ? prev.assignedDept : defaultAssignedDept,
+    }));
+  }, [departments]);
 
   const stats = {
     total: decisions.length,
@@ -5909,6 +5963,7 @@ function Decisions({ decisions, setDecisions }) {
   const submit = () => {
     if (!isComplete(form)) return;
     const today = new Date().toISOString().slice(0, 10);
+    const now = new Date().toISOString();
     const newDecision = {
       id: "d" + Date.now(),
       title: form.title,
@@ -5920,15 +5975,18 @@ function Decisions({ decisions, setDecisions }) {
       status: "執行中",
       linkedCases: [],
       notes: form.notes,
+      createdBy: userProfile?.email || form.decidedBy,
+      updatedBy: userProfile?.email || form.decidedBy,
+      updatedAt: now,
     };
     setDecisions([newDecision, ...decisions]);
-    setForm({ title: "", content: "", decidedBy: "董事會", assignedDept: "投資研究部", dueDate: "", notes: "" });
+    setForm({ title: "", content: "", decidedBy: "董事會", assignedDept: defaultAssignedDept, dueDate: "", notes: "" });
     setMode("list");
   };
 
   const markDone = (id) => {
     setDecisions(decisions.map((d) =>
-      d.id === id ? { ...d, status: "已完成", completedAt: new Date().toISOString().slice(0, 10) } : d
+      d.id === id ? { ...d, status: "已完成", completedAt: new Date().toISOString().slice(0, 10), updatedBy: userProfile?.email || d.decidedBy, updatedAt: new Date().toISOString() } : d
     ));
     setViewing(null);
   };
@@ -5979,10 +6037,9 @@ function Decisions({ decisions, setDecisions }) {
             <div>
               <label style={labelStyle}>指派執行部門</label>
               <select value={form.assignedDept} onChange={(e) => setForm({ ...form, assignedDept: e.target.value })} style={{ ...inputStyle, cursor: "pointer" }}>
-                <option>投資研究部</option>
-                <option>業務開發部</option>
-                <option>資產管理部</option>
-                <option>營運與管理層</option>
+                {deptNames.map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
               </select>
             </div>
           </div>
@@ -6431,10 +6488,10 @@ function Decisions({ decisions, setDecisions }) {
 // ============================================================
 // 員工負載熱力圖頁面
 // ============================================================
-function EmployeeLoad({ reports, handoffs, decisions }) {
+function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES }) {
   const [selected, setSelected] = useState(null);
   const [oneOnOneCard, setOneOnOneCard] = useState(null);
-  const loads = useMemo(() => analyzeEmployeeLoad(reports, handoffs), [reports, handoffs]);
+  const loads = useMemo(() => analyzeEmployeeLoad(reports, handoffs, employees), [reports, handoffs, employees]);
 
   const byDept = loads.reduce((acc, e) => {
     if (!acc[e.dept]) acc[e.dept] = [];
@@ -6775,7 +6832,7 @@ function EmployeeLoad({ reports, handoffs, decisions }) {
                   variant="primary"
                   icon={FileText}
                   onClick={() => {
-                    setOneOnOneCard(generateOneOnOneCard(selected, reports, handoffs, decisions));
+                    setOneOnOneCard(generateOneOnOneCard(selected, reports, handoffs, decisions, employees));
                   }}
                 >
                   📋 產出 1-on-1 準備卡
@@ -7011,9 +7068,9 @@ function EmployeeLoad({ reports, handoffs, decisions }) {
 // ============================================================
 // 組織分析頁(B1 + B2)
 // ============================================================
-function OrgAnalytics({ reports, activityHistory }) {
-  const network = useMemo(() => analyzeDeptNetwork(reports), [reports]);
-  const predictions = useMemo(() => predictNextWeek(activityHistory), [activityHistory]);
+function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS }) {
+  const network = useMemo(() => analyzeDeptNetwork(reports, departments), [reports, departments]);
+  const predictions = useMemo(() => predictNextWeek(activityHistory, departments), [activityHistory, departments]);
 
   // 計算 SVG 上各部門的位置(等距三角形)
   const W = 540, H = 380;
@@ -7334,7 +7391,7 @@ function OrgAnalytics({ reports, activityHistory }) {
 // ============================================================
 // E 系列. 會議準備頁
 // ============================================================
-function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = [], customMeetings, setCustomMeetings, meetingHistory, setMeetingHistory }) {
+function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = [], customMeetings, setCustomMeetings, meetingHistory, setMeetingHistory, employees = SEED_EMPLOYEES, departments = SEED_DEPARTMENTS, userProfile }) {
   const [selectedMeeting, setSelectedMeeting] = useState("weekly");
   const [showAgenda, setShowAgenda] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
@@ -7372,7 +7429,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
 
   const currentMeeting = useMemo(() => {
     if (isPredefined) {
-      return generateMeetingAgenda(selectedMeeting, reports, handoffs, decisions, blockerHistory, blockers);
+      return generateMeetingAgenda(selectedMeeting, reports, handoffs, decisions, blockerHistory, blockers, employees, departments);
     }
     if (customMeetingData) {
       // 自訂會議的議程
@@ -7406,7 +7463,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
       };
     }
     return null;
-  }, [selectedMeeting, reports, handoffs, decisions, blockerHistory, blockers, isPredefined, customMeetingData]);
+  }, [selectedMeeting, reports, handoffs, decisions, blockerHistory, blockers, employees, departments, isPredefined, customMeetingData]);
 
   // 新增會議
   const handleAddMeeting = () => {
@@ -7415,7 +7472,8 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
       return;
     }
     const id = "custom-" + Date.now();
-    const meeting = { ...newMeeting, id, createdAt: new Date().toISOString() };
+    const now = new Date().toISOString();
+    const meeting = { ...newMeeting, id, createdAt: now, updatedAt: now, createdBy: userProfile?.email || "current-user", updatedBy: userProfile?.email || "current-user" };
     setCustomMeetings([...(customMeetings || []), meeting]);
     setSelectedMeeting(id);
     setShowAddModal(false);
@@ -7431,6 +7489,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
       const archived = {
         ...meeting,
         archivedAt: new Date().toISOString().slice(0, 10),
+        archivedBy: userProfile?.email || "current-user",
       };
       setMeetingHistory([archived, ...(meetingHistory || [])]);
     }
@@ -7448,6 +7507,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
       audience: currentMeeting.audience,
       icon: currentMeeting.icon,
       archivedAt: new Date().toISOString().slice(0, 10),
+      archivedBy: userProfile?.email || "current-user",
       agendaSnapshot: currentMeeting.agenda,
       textSnapshot: currentMeeting.textVersion,
     };
@@ -7491,7 +7551,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
             const isCustom = m.isCustom;
             let hoursUntil = 0;
             if (!isCustom) {
-              const meetingData = generateMeetingAgenda(m.id, reports, handoffs, decisions, blockerHistory, blockers);
+              const meetingData = generateMeetingAgenda(m.id, reports, handoffs, decisions, blockerHistory, blockers, employees, departments);
               hoursUntil = meetingData?.hoursUntil || 0;
             }
             const urgency = isCustom ? null : (hoursUntil < 24 ? "imminent" : hoursUntil < 72 ? "soon" : "later");
@@ -8087,12 +8147,6 @@ export default function App() {
   const [authUser, setAuthUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
-  // 使用者角色資訊(根據 email 自動推斷)
-  const userProfile = useMemo(
-    () => authUser ? { ...inferUserProfile(authUser.email), email: authUser.email } : null,
-    [authUser]
-  );
-
   // ===== 應用狀態 =====
   const [tab, setTab] = useState("dashboard");
   const [focusHandoffId, setFocusHandoffId] = useState(null);
@@ -8100,6 +8154,10 @@ export default function App() {
   const [handoffs, setHandoffs] = useState(SEED_HANDOFFS);
   const [decisions, setDecisions] = useState(SEED_DECISIONS);
   const [blockers, setBlockers] = useState(SEED_BLOCKERS);
+  const [employees, setEmployees] = useState(SEED_EMPLOYEES);
+  const [departments, setDepartments] = useState(SEED_DEPARTMENTS);
+  const [users, setUsers] = useState(SEED_USERS);
+  const [auditLogs, setAuditLogs] = useState([]);
   const [customMeetings, setCustomMeetings] = useState([]);
   const [meetingHistory, setMeetingHistory] = useState([]);
   const [history] = useState(SEED_HISTORY);
@@ -8108,6 +8166,69 @@ export default function App() {
   const [activityHistory] = useState(SEED_REPORT_ACTIVITY);
   const [dataLoaded, setDataLoaded] = useState(false);
   const [syncStatus, setSyncStatus] = useState("idle"); // idle | syncing | error
+
+  // 使用者角色資訊:優先讀 Firestore users collection,找不到才用安全 fallback。
+  const userProfile = useMemo(() => {
+    if (!authUser) return null;
+    const email = authUser.email || "";
+    const userRecord = users.find((u) => (u.email || "").toLowerCase() === email.toLowerCase() && u.active !== false);
+    if (userRecord) {
+      return {
+        ...inferUserProfile(email),
+        ...userRecord,
+        email,
+      };
+    }
+    return { ...inferUserProfile(email), email };
+  }, [authUser, users]);
+
+  const auditChange = (collectionName, action, beforeItem, afterItem) => {
+    const recordId = afterItem?.id || beforeItem?.id;
+    if (!recordId) return;
+    const now = new Date().toISOString();
+    setAuditLogs((prev) => [
+      {
+        id: `audit-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        collectionName,
+        action,
+        recordId,
+        actorEmail: userProfile?.email || authUser?.email || "unknown",
+        actorRole: userProfile?.role || "unknown",
+        before: beforeItem || null,
+        after: afterItem || null,
+        createdAt: now,
+      },
+      ...prev,
+    ].slice(0, 500));
+  };
+
+  const makeAuditedSetter = (setter, collectionName) => (updater) => {
+    setter((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      const prevItems = Array.isArray(prev) ? prev : [];
+      const nextItems = Array.isArray(next) ? next : [];
+      const prevMap = new Map(prevItems.map((item) => [item.id, item]));
+      const nextMap = new Map(nextItems.map((item) => [item.id, item]));
+
+      nextMap.forEach((item, id) => {
+        const oldItem = prevMap.get(id);
+        if (!oldItem) auditChange(collectionName, "create", null, item);
+        else if (JSON.stringify(oldItem) !== JSON.stringify(item)) auditChange(collectionName, "update", oldItem, item);
+      });
+      prevMap.forEach((item, id) => {
+        if (!nextMap.has(id)) auditChange(collectionName, "delete", item, null);
+      });
+
+      return next;
+    });
+  };
+
+  const setReportsAudited = makeAuditedSetter(setReports, "reports");
+  const setHandoffsAudited = makeAuditedSetter(setHandoffs, "handoffs");
+  const setDecisionsAudited = makeAuditedSetter(setDecisions, "decisions");
+  const setBlockersAudited = makeAuditedSetter(setBlockers, "blockers");
+  const setCustomMeetingsAudited = makeAuditedSetter(setCustomMeetings, "customMeetings");
+  const setMeetingHistoryAudited = makeAuditedSetter(setMeetingHistory, "meetingHistory");
 
   // ===== 監聽登入狀態 =====
   useEffect(() => {
@@ -8127,20 +8248,28 @@ export default function App() {
     (async () => {
       setSyncStatus("syncing");
       try {
-        const [r, h, d, b, cm, mh] = await Promise.all([
-          fetchCollection("reports", SEED_REPORTS),
-          fetchCollection("handoffs", SEED_HANDOFFS),
-          fetchCollection("decisions", SEED_DECISIONS),
+        const [r, h, d, b, emp, deptRows, userRows, cm, mh, logs] = await Promise.all([
+          fetchDocumentCollection("reports", SEED_REPORTS),
+          fetchDocumentCollection("handoffs", SEED_HANDOFFS),
+          fetchDocumentCollection("decisions", SEED_DECISIONS),
           fetchDocumentCollection("blockers", []),
-          fetchCollection("customMeetings", []),
-          fetchCollection("meetingHistory", []),
+          fetchDocumentCollection("employees", SEED_EMPLOYEES),
+          fetchDocumentCollection("departments", SEED_DEPARTMENTS),
+          fetchDocumentCollection("users", SEED_USERS),
+          fetchDocumentCollection("customMeetings", []),
+          fetchDocumentCollection("meetingHistory", []),
+          fetchDocumentCollection("auditLogs", []),
         ]);
         setReports(r);
         setHandoffs(h);
         setDecisions(d);
         setBlockers(b.length ? b : [...SEED_BLOCKERS, ...createLegacyBlockersFromReports(r)]);
+        setEmployees(emp);
+        setDepartments(deptRows);
+        setUsers(userRows);
         setCustomMeetings(cm);
         setMeetingHistory(mh);
+        setAuditLogs(logs);
         setSyncStatus("idle");
       } catch (err) {
         console.error("Firebase load failed:", err);
@@ -8155,7 +8284,7 @@ export default function App() {
   useEffect(() => {
     if (dataLoaded && authUser) {
       setSyncStatus("syncing");
-      saveCollection("reports", reports).then((ok) =>
+      saveDocumentCollection("reports", reports).then((ok) =>
         setSyncStatus(ok ? "idle" : "error")
       );
     }
@@ -8164,7 +8293,7 @@ export default function App() {
   useEffect(() => {
     if (dataLoaded && authUser) {
       setSyncStatus("syncing");
-      saveCollection("handoffs", handoffs).then((ok) =>
+      saveDocumentCollection("handoffs", handoffs).then((ok) =>
         setSyncStatus(ok ? "idle" : "error")
       );
     }
@@ -8173,7 +8302,7 @@ export default function App() {
   useEffect(() => {
     if (dataLoaded && authUser) {
       setSyncStatus("syncing");
-      saveCollection("decisions", decisions).then((ok) =>
+      saveDocumentCollection("decisions", decisions).then((ok) =>
         setSyncStatus(ok ? "idle" : "error")
       );
     }
@@ -8190,15 +8319,39 @@ export default function App() {
 
   useEffect(() => {
     if (dataLoaded && authUser) {
-      saveCollection("customMeetings", customMeetings);
+      saveDocumentCollection("customMeetings", customMeetings);
     }
   }, [customMeetings, dataLoaded, authUser]);
 
   useEffect(() => {
     if (dataLoaded && authUser) {
-      saveCollection("meetingHistory", meetingHistory);
+      saveDocumentCollection("meetingHistory", meetingHistory);
     }
   }, [meetingHistory, dataLoaded, authUser]);
+
+  useEffect(() => {
+    if (dataLoaded && authUser) {
+      saveDocumentCollection("employees", employees);
+    }
+  }, [employees, dataLoaded, authUser]);
+
+  useEffect(() => {
+    if (dataLoaded && authUser) {
+      saveDocumentCollection("departments", departments);
+    }
+  }, [departments, dataLoaded, authUser]);
+
+  useEffect(() => {
+    if (dataLoaded && authUser) {
+      saveDocumentCollection("users", users);
+    }
+  }, [users, dataLoaded, authUser]);
+
+  useEffect(() => {
+    if (dataLoaded && authUser) {
+      saveDocumentCollection("auditLogs", auditLogs);
+    }
+  }, [auditLogs, dataLoaded, authUser]);
 
   const navigateTo = (t, id) => {
     setTab(t);
@@ -8212,6 +8365,9 @@ export default function App() {
       setHandoffs(SEED_HANDOFFS);
       setDecisions(SEED_DECISIONS);
       setBlockers(SEED_BLOCKERS);
+      setEmployees(SEED_EMPLOYEES);
+      setDepartments(SEED_DEPARTMENTS);
+      setUsers(SEED_USERS);
     }
   };
 
@@ -8224,16 +8380,28 @@ export default function App() {
   const handleRefresh = async () => {
     if (!authUser) return;
     setSyncStatus("syncing");
-    const [r, h, d, b] = await Promise.all([
-      fetchCollection("reports", SEED_REPORTS),
-      fetchCollection("handoffs", SEED_HANDOFFS),
-      fetchCollection("decisions", SEED_DECISIONS),
+    const [r, h, d, b, emp, deptRows, userRows, cm, mh, logs] = await Promise.all([
+      fetchDocumentCollection("reports", SEED_REPORTS),
+      fetchDocumentCollection("handoffs", SEED_HANDOFFS),
+      fetchDocumentCollection("decisions", SEED_DECISIONS),
       fetchDocumentCollection("blockers", []),
+      fetchDocumentCollection("employees", SEED_EMPLOYEES),
+      fetchDocumentCollection("departments", SEED_DEPARTMENTS),
+      fetchDocumentCollection("users", SEED_USERS),
+      fetchDocumentCollection("customMeetings", []),
+      fetchDocumentCollection("meetingHistory", []),
+      fetchDocumentCollection("auditLogs", []),
     ]);
     setReports(r);
     setHandoffs(h);
     setDecisions(d);
     setBlockers(b.length ? b : [...SEED_BLOCKERS, ...createLegacyBlockersFromReports(r)]);
+    setEmployees(emp);
+    setDepartments(deptRows);
+    setUsers(userRows);
+    setCustomMeetings(cm);
+    setMeetingHistory(mh);
+    setAuditLogs(logs);
     setSyncStatus("idle");
   };
 
@@ -8548,21 +8716,23 @@ export default function App() {
           reports={reports}
           handoffs={handoffs}
           blockers={blockers}
-          setBlockers={setBlockers}
+          setBlockers={setBlockersAudited}
           blockerHistory={blockerHistory}
           decisions={decisions}
+          employees={employees}
+          departments={departments}
           topicHistory={topicHistory}
           activityHistory={activityHistory}
           onNav={navigateTo}
           userProfile={userProfile}
         />}
-        {currentTab === "report" && <WeeklyReport reports={reports} setReports={setReports} blockers={blockers} setBlockers={setBlockers} userProfile={userProfile} />}
-        {currentTab === "handoff" && <Handoff handoffs={handoffs} setHandoffs={setHandoffs} focusId={focusHandoffId} />}
-        {currentTab === "decisions" && <Decisions decisions={decisions} setDecisions={setDecisions} />}
-        {currentTab === "employees" && <EmployeeLoad reports={reports} handoffs={handoffs} decisions={decisions} />}
+        {currentTab === "report" && <WeeklyReport reports={reports} setReports={setReportsAudited} blockers={blockers} setBlockers={setBlockersAudited} userProfile={userProfile} departments={departments} />}
+        {currentTab === "handoff" && <Handoff handoffs={handoffs} setHandoffs={setHandoffsAudited} focusId={focusHandoffId} departments={departments} userProfile={userProfile} />}
+        {currentTab === "decisions" && <Decisions decisions={decisions} setDecisions={setDecisionsAudited} departments={departments} userProfile={userProfile} />}
+        {currentTab === "employees" && <EmployeeLoad reports={reports} handoffs={handoffs} decisions={decisions} employees={employees} />}
         {currentTab === "history" && <History history={history} />}
         {currentTab === "analytics" && <BlockerAnalytics blockerHistory={blockerHistory} blockers={blockers} reports={reports} />}
-        {currentTab === "orgnetwork" && <OrgAnalytics reports={reports} activityHistory={activityHistory} />}
+        {currentTab === "orgnetwork" && <OrgAnalytics reports={reports} activityHistory={activityHistory} departments={departments} />}
         {currentTab === "meetings" && <MeetingPrep
           reports={reports}
           handoffs={handoffs}
@@ -8570,9 +8740,12 @@ export default function App() {
           blockerHistory={blockerHistory}
           blockers={blockers}
           customMeetings={customMeetings}
-          setCustomMeetings={setCustomMeetings}
+          setCustomMeetings={setCustomMeetingsAudited}
           meetingHistory={meetingHistory}
-          setMeetingHistory={setMeetingHistory}
+          setMeetingHistory={setMeetingHistoryAudited}
+          employees={employees}
+          departments={departments}
+          userProfile={userProfile}
         />}
         {currentTab === "linebot" && <LineBot reports={reports} handoffs={handoffs} />}
       </main>
