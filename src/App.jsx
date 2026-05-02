@@ -8964,7 +8964,19 @@ export default function App() {
         setCustomMeetings(cm);
         setMeetingHistory(mh);
         setAuditLogs(logs);
-        setHistory(hist.length ? hist : SEED_HISTORY);
+        // 強制同步：若雲端為舊格式（沒有任何 id 以 "bh" 開頭的記錄），
+        // 視為過期資料，用最新 SEED_HISTORY 取代並讓自動同步寫回 Firebase。
+        // 這保證歷史案件搜尋和卡點統計分析永遠是同一份 53 筆資料。
+        const hasNewFormat = hist.some((h) => String(h.id || "").startsWith("bh"));
+        if (!hist.length || !hasNewFormat) {
+          setHistory(SEED_HISTORY);
+        } else {
+          // 雲端有新格式 → 確保至少包含 SEED_HISTORY 全部 53 筆，
+          // 缺少的補回（保留使用者額外新增的案件）
+          const cloudIds = new Set(hist.map((h) => h.id));
+          const missingSeed = SEED_HISTORY.filter((s) => !cloudIds.has(s.id));
+          setHistory(missingSeed.length ? [...hist, ...missingSeed] : hist);
+        }
         setSyncStatus("idle");
       } catch (err) {
         console.error("Firebase load failed:", err);
