@@ -464,7 +464,7 @@ const SEED_HANDOFFS = [
   },
 ];
 
-const SEED_HISTORY = [
+const SEED_HISTORY_LEGACY = [
   {
     id: "k1",
     title: "K 公司支付 SaaS 投資評估",
@@ -768,6 +768,45 @@ const SEED_BLOCKER_HISTORY = [
   ...[3, 4, 5, 6, 8, 12, 18, 31].map((d, i) => makeHistoryBlocker(80 + i, "決策/簽核", d, ["投資委員會決議", "條件書簽核", "董事會拍板", "追加投資核准"][i % 4], ["營運與管理層", "投資研究部", "資產管理部"][i % 3], 26 + i)),
   ...[1, 2, 3, 4, 5, 7, 10, 17].map((d, i) => makeHistoryBlocker(100 + i, "時程/聯繫", d, ["財務長行程安排", "會議排程確認", "外部窗口催促"][i % 3], ["業務開發部", "投資研究部", "資產管理部"][i % 3], 28 + i)),
 ].sort((a, b) => a.weekNum - b.weekNum);
+
+// ============================================================
+// 統一歷史資料：由 SEED_BLOCKER_HISTORY 53 筆轉換而來
+// 讓「歷史案件搜尋」與「卡點統計分析」共用同一份資料
+// ============================================================
+const categoryInsights = {
+  "法遵/合約":    ["法遵類卡點平均需 7–8 天解決", "合約條款審閱需法務部門配合", "提前送件可縮短審閱等待時間"],
+  "資金/募資":    ["資金類卡點平均需 5–6 天解決", "預算追加需董事會決議，時程較長", "建議提前 2 週申請以保留緩衝"],
+  "資料/補件":    ["補件類卡點平均需 6–7 天解決", "財報補件延誤是最常見的盡調障礙", "建議在 LOI 階段即要求完整財務資料"],
+  "跨部門/窗口":  ["跨部門協作平均需 4–5 天完成", "窗口對接若未明確指派易造成延誤", "建議每個案件設立單一對口人"],
+  "決策/簽核":    ["決策類卡點平均需 8–10 天解決", "投資委員會排程需提前至少一週確認", "備齊完整資料可顯著縮短審議時間"],
+  "時程/聯繫":    ["時程類卡點平均需 5–6 天解決", "創辦人/外部窗口聯繫困難是常見問題", "多管道聯繫並設定明確 deadline 可提高回應率"],
+};
+
+const SEED_HISTORY = SEED_BLOCKER_HISTORY.map((b) => {
+  const cat = BLOCKER_CATEGORIES.find((c) => c.key === b.category) || BLOCKER_CATEGORIES[BLOCKER_CATEGORIES.length - 1];
+  const speed = b.daysToResolve <= 3 ? "快速解決" : b.daysToResolve <= 7 ? "正常解決" : b.daysToResolve <= 14 ? "較慢解決" : "嚴重延誤";
+  const insights = categoryInsights[b.category] || [];
+  return {
+    id: b.id,
+    title: b.title,
+    date: `第 ${b.weekNum} 週`,
+    tags: [b.category, b.dept, speed],
+    summary: `${b.dept}處理的${b.category}類卡點，歷時 ${b.daysToResolve} 天完成解決。`,
+    owner: b.dept,
+    handoffs: b.crossDepts || 1,
+    outcome: `已解決 · ${b.daysToResolve} 天`,
+    detail: {
+      background: `本卡點屬於「${b.category}」類別，發生於第 ${b.weekNum} 週，由 ${b.dept} 主責處理。`,
+      process: `共歷時 ${b.daysToResolve} 天完成解決，期間涉及 ${b.crossDepts || 1} 次跨部門協作，案件規模：${b.caseSize || "M"}。`,
+      valuation: `解決時間：${b.daysToResolve} 天 · 同類平均：${b.category === "法遵/合約" ? "7.8" : b.category === "資金/募資" ? "5.7" : b.category === "資料/補件" ? "6.4" : b.category === "跨部門/窗口" ? "4.6" : b.category === "決策/簽核" ? "9.2" : "5.0"} 天`,
+      keyInsights: insights,
+      result: `已成功解決，${b.daysToResolve <= 5 ? "解決速度優於同類歷史中位數，可作為快速處理的參考案例。" : b.daysToResolve <= 14 ? "解決時間在正常範圍內。" : "解決時間偏長，建議檢討流程以避免類似延誤再發生。"}`,
+      lessons: b.daysToResolve > 10
+        ? `本案處理時間較長(${b.daysToResolve}天)，建議下次同類卡點在第 ${Math.ceil(b.daysToResolve * 0.6)} 天時即升級處理層級。`
+        : `本案處理效率良好，相關處理模式值得在團隊內部分享。`,
+    },
+  };
+});
 
 const SEED_BLOCKERS = [
   {
@@ -6036,7 +6075,32 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
 // ============================================================
 // 卡點統計分析頁面
 // ============================================================
-function BlockerAnalytics({ blockerHistory, blockers = [], reports = [] }) {
+function BlockerAnalytics({ blockerHistory, blockers = [], reports = [], history = [] }) {
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [expandedCaseId, setExpandedCaseId] = useState(null);
+
+  // 比對歷史案件和卡點類別
+  const getRelatedCases = (categoryKey) => {
+    const cat = BLOCKER_CATEGORIES.find((c) => c.key === categoryKey);
+    if (!cat || !cat.keywords.length) return history;
+    const keywords = cat.keywords.map((k) => k.toLowerCase());
+    return history
+      .map((item) => {
+        const text = [
+          item.title, item.summary,
+          ...(item.tags || []),
+          item.detail?.background, item.detail?.process,
+          item.detail?.lessons,
+        ].filter(Boolean).join(" ").toLowerCase();
+        const score = keywords.filter((k) => text.includes(k)).length;
+        return { ...item, _score: score };
+      })
+      .filter((item) => item._score > 0)
+      .sort((a, b) => b._score - a._score);
+  };
+
+  const relatedCases = selectedCategory ? getRelatedCases(selectedCategory) : [];
+
   // 每個類別的統計摘要
   const categorySummary = BLOCKER_CATEGORIES.map((cat) => {
     const items = blockerHistory.filter((h) => h.category === cat.key);
@@ -6111,25 +6175,40 @@ function BlockerAnalytics({ blockerHistory, blockers = [], reports = [] }) {
               </tr>
             </thead>
             <tbody>
-              {categorySummary.map((c) => (
-                <tr key={c.key} style={{ borderBottom: "1px solid " + C.borderLight }}>
-                  <td style={{ padding: "10px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <div style={{ width: 10, height: 10, background: c.color, borderRadius: 2 }} />
-                      <span style={{ fontWeight: 600 }}>{c.label}</span>
-                    </div>
-                  </td>
-                  <td style={{ textAlign: "right", padding: "10px", color: C.textMid }}>{c.count}</td>
-                  <td style={{ textAlign: "right", padding: "10px", fontWeight: 500 }}>{c.mean.toFixed(1)}</td>
-                  <td style={{ textAlign: "right", padding: "10px", color: C.textMid }}>{c.std.toFixed(1)}</td>
-                  <td style={{ textAlign: "right", padding: "10px" }}>{c.median.toFixed(1)}</td>
-                  <td style={{ textAlign: "right", padding: "10px" }}>{c.p75.toFixed(1)}</td>
-                  <td style={{ textAlign: "right", padding: "10px" }}>{c.p90.toFixed(1)}</td>
-                  <td style={{ textAlign: "right", padding: "10px", color: C.textLight, fontSize: 11 }}>
-                    {c.min}–{c.max}
-                  </td>
-                </tr>
-              ))}
+              {categorySummary.map((c) => {
+                const isSelected = selectedCategory === c.key;
+                return (
+                  <tr
+                    key={c.key}
+                    onClick={() => { setSelectedCategory(isSelected ? null : c.key); setExpandedCaseId(null); }}
+                    style={{
+                      borderBottom: "1px solid " + C.borderLight,
+                      cursor: "pointer",
+                      background: isSelected ? c.color + "12" : "transparent",
+                      transition: "background 0.15s",
+                    }}
+                    onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = C.bg; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = isSelected ? c.color + "12" : "transparent"; }}
+                  >
+                    <td style={{ padding: "10px" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <div style={{ width: 10, height: 10, background: c.color, borderRadius: 2 }} />
+                        <span style={{ fontWeight: 600 }}>{c.label}</span>
+                        {isSelected && <span style={{ fontSize: 10, color: c.color, marginLeft: 4 }}>▼ 查看案例</span>}
+                      </div>
+                    </td>
+                    <td style={{ textAlign: "right", padding: "10px", color: C.textMid }}>{c.count}</td>
+                    <td style={{ textAlign: "right", padding: "10px", fontWeight: 500 }}>{c.mean.toFixed(1)}</td>
+                    <td style={{ textAlign: "right", padding: "10px", color: C.textMid }}>{c.std.toFixed(1)}</td>
+                    <td style={{ textAlign: "right", padding: "10px" }}>{c.median.toFixed(1)}</td>
+                    <td style={{ textAlign: "right", padding: "10px" }}>{c.p75.toFixed(1)}</td>
+                    <td style={{ textAlign: "right", padding: "10px" }}>{c.p90.toFixed(1)}</td>
+                    <td style={{ textAlign: "right", padding: "10px", color: C.textLight, fontSize: 11 }}>
+                      {c.min}–{c.max}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -6141,18 +6220,25 @@ function BlockerAnalytics({ blockerHistory, blockers = [], reports = [] }) {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
           {categorySummary.map((c) => {
             const maxCount = Math.max(...c.hist.map((h) => h.count), 1);
+            const isSelected = selectedCategory === c.key;
             return (
-              <div key={c.key} style={{
-                padding: 14,
-                background: C.bg,
-                borderRadius: 8,
-                border: "1px solid " + C.borderLight,
-              }}>
+              <div
+                key={c.key}
+                onClick={() => { setSelectedCategory(isSelected ? null : c.key); setExpandedCaseId(null); }}
+                style={{
+                  padding: 14,
+                  background: isSelected ? c.color + "12" : C.bg,
+                  borderRadius: 8,
+                  border: "1px solid " + (isSelected ? c.color + "60" : C.borderLight),
+                  cursor: "pointer",
+                  transition: "all 0.15s",
+                }}
+              >
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                   <div style={{ width: 10, height: 10, background: c.color, borderRadius: 2 }} />
                   <div style={{ fontSize: 13, fontWeight: 600 }}>{c.label}</div>
-                  <div style={{ marginLeft: "auto", fontSize: 11, color: C.textLight }}>
-                    n={c.count}
+                  <div style={{ marginLeft: "auto", fontSize: 11, color: isSelected ? c.color : C.textLight, fontWeight: isSelected ? 600 : 400 }}>
+                    {isSelected ? "點此收合" : `n=${c.count} · 點查案例`}
                   </div>
                 </div>
                 <div style={{
@@ -6259,6 +6345,117 @@ function BlockerAnalytics({ blockerHistory, blockers = [], reports = [] }) {
           </div>
         </div>
       </Card>
+
+      {/* 類別關聯歷史案件面板 */}
+      {selectedCategory && (() => {
+        const cat = BLOCKER_CATEGORIES.find((c) => c.key === selectedCategory);
+        return (
+          <Card style={{ padding: 20, border: "2px solid " + cat.color + "50", animation: "fadeIn 0.2s ease-out" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ width: 12, height: 12, background: cat.color, borderRadius: 3 }} />
+                  <span style={{ fontSize: 15, fontWeight: 700, color: cat.color }}>
+                    {cat.label} · 相關歷史案件
+                  </span>
+                  <Pill tone="neutral">{relatedCases.length} 筆</Pill>
+                </div>
+                <div style={{ fontSize: 11, color: C.textMid, marginTop: 4 }}>
+                  關鍵字：{cat.keywords.join("、")}
+                </div>
+              </div>
+              <span
+                onClick={() => setSelectedCategory(null)}
+                style={{ cursor: "pointer", color: C.textLight, fontSize: 18, lineHeight: 1 }}
+              >✕</span>
+            </div>
+
+            {relatedCases.length === 0 ? (
+              <div style={{ padding: "20px 0", textAlign: "center", color: C.textLight, fontSize: 13 }}>
+                目前歷史案件中沒有與此類別相關的記錄
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {relatedCases.map((r) => {
+                  const isExpanded = expandedCaseId === r.id;
+                  return (
+                    <div
+                      key={r.id}
+                      style={{
+                        background: isExpanded ? cat.color + "08" : C.bg,
+                        border: "1px solid " + (isExpanded ? cat.color + "40" : C.borderLight),
+                        borderLeft: "3px solid " + cat.color,
+                        borderRadius: 8,
+                        padding: "12px 14px",
+                        cursor: "pointer",
+                        transition: "all 0.15s",
+                      }}
+                      onClick={() => setExpandedCaseId(isExpanded ? null : r.id)}
+                    >
+                      {/* 標題列 */}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>{r.title}</div>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", marginLeft: 8 }}>
+                          <Pill tone={r.outcome?.includes("投資 ·") ? "teal" : r.outcome === "觀望" ? "warn" : "neutral"}>
+                            {r.outcome}
+                          </Pill>
+                          <ChevronRight size={13} color={C.textLight}
+                            style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.2s" }} />
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 11, color: C.textMid, marginBottom: 6 }}>
+                        {r.date} · 負責：{r.owner}
+                      </div>
+                      <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                        {(r.tags || []).map((t) => <Pill key={t} tone="purple">{t}</Pill>)}
+                      </div>
+
+                      {/* 展開詳情 */}
+                      {isExpanded && r.detail && (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          style={{ marginTop: 12, borderTop: "1px solid " + cat.color + "30", paddingTop: 12 }}
+                        >
+                          {[
+                            { label: "案件背景", value: r.detail.background },
+                            { label: "處理過程", value: r.detail.process },
+                            { label: "估值與條件", value: r.detail.valuation },
+                          ].map((f) => f.value && (
+                            <div key={f.label} style={{ marginBottom: 10 }}>
+                              <div style={{ fontSize: 11, color: C.textMid, fontWeight: 600, marginBottom: 3 }}>{f.label}</div>
+                              <div style={{ fontSize: 12, lineHeight: 1.7, padding: "7px 10px", background: "white", borderRadius: 6 }}>
+                                {f.value}
+                              </div>
+                            </div>
+                          ))}
+                          {r.detail.keyInsights?.length > 0 && (
+                            <div style={{ marginBottom: 10 }}>
+                              <div style={{ fontSize: 11, color: C.textMid, fontWeight: 600, marginBottom: 3 }}>關鍵洞察</div>
+                              <div style={{ fontSize: 12, lineHeight: 1.9, padding: "7px 10px", background: C.purpleLight, borderRadius: 6, color: "#4A3F70" }}>
+                                {r.detail.keyInsights.map((k, i) => <div key={i}>• {k}</div>)}
+                              </div>
+                            </div>
+                          )}
+                          {r.detail.lessons && (
+                            <div style={{ fontSize: 12, color: C.textMid, fontStyle: "italic", lineHeight: 1.7, marginTop: 8 }}>
+                              💡 {r.detail.lessons}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {isExpanded && !r.detail && (
+                        <div style={{ marginTop: 10, fontSize: 12, color: C.textMid }}>
+                          {r.summary}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+        );
+      })()}
     </div>
   );
 }
@@ -9235,7 +9432,7 @@ export default function App() {
         {currentTab === "decisions" && <Decisions decisions={decisions} setDecisions={setDecisionsAudited} departments={departments} userProfile={userProfile} />}
         {currentTab === "employees" && <EmployeeLoad reports={reports} handoffs={handoffs} decisions={decisions} employees={employees} />}
         {currentTab === "history" && <History history={history} setHistory={setHistory} handoffs={handoffs} decisions={decisions} reports={reports} userProfile={userProfile} />}
-        {currentTab === "analytics" && <BlockerAnalytics blockerHistory={blockerHistory} blockers={blockers} reports={reports} />}
+        {currentTab === "analytics" && <BlockerAnalytics blockerHistory={blockerHistory} blockers={blockers} reports={reports} history={history} />}
         {currentTab === "orgnetwork" && <OrgAnalytics reports={reports} activityHistory={activityHistory} departments={departments} />}
         {currentTab === "meetings" && <MeetingPrep
           reports={reports}
