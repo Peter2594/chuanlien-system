@@ -13,6 +13,7 @@ import {
 import {
   getFirestore,
   doc,
+  deleteDoc,
   getDoc,
   setDoc,
   collection,
@@ -20,14 +21,15 @@ import {
   writeBatch,
 } from "firebase/firestore";
 
-// 從 Firebase Console 取得的設定
+// 從環境變數讀取 Firebase 設定
+// 若未提供,退回 demo 預設值以避免本機開發中斷。
 const firebaseConfig = {
-  apiKey: "AIzaSyCmpjx_6dPQtGfubTFcYZOpNpDVJD0-LwU",
-  authDomain: "chuanlien-system.firebaseapp.com",
-  projectId: "chuanlien-system",
-  storageBucket: "chuanlien-system.firebasestorage.app",
-  messagingSenderId: "535615404579",
-  appId: "1:535615404579:web:6df27827b85c7af65f0f96",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyCmpjx_6dPQtGfubTFcYZOpNpDVJD0-LwU",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "chuanlien-system.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "chuanlien-system",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "chuanlien-system.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "535615404579",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:535615404579:web:6df27827b85c7af65f0f96",
 };
 
 // 初始化
@@ -111,6 +113,61 @@ const makeStableDocId = (collectionName, item, index) => {
     .replace(/[^a-z0-9\u4e00-\u9fa5_-]+/g, "-")
     .replace(/^-+|-+$/g, "")
     || `${collectionName}-${index}`;
+};
+
+export const upsertDocument = async (collectionName, item, index = 0) => {
+  try {
+    const id = makeStableDocId(collectionName, item, index);
+    const itemRef = doc(db, "companies", COMPANY_ID, collectionName, id);
+    await setDoc(itemRef, { ...item, id }, { merge: true });
+    return true;
+  } catch (err) {
+    console.error(`upsertDocument(${collectionName}) failed:`, err);
+    return false;
+  }
+};
+
+// 以 updatedAt 作為最小版衝突檢查:
+// 若 expectedUpdatedAt 與雲端目前值不同,回傳 conflict 而不覆蓋。
+export const upsertDocumentWithVersionCheck = async (
+  collectionName,
+  item,
+  expectedUpdatedAt,
+  index = 0
+) => {
+  try {
+    const id = makeStableDocId(collectionName, item, index);
+    const itemRef = doc(db, "companies", COMPANY_ID, collectionName, id);
+    const snap = await getDoc(itemRef);
+    const cloud = snap.exists() ? snap.data() : null;
+    const cloudUpdatedAt = cloud?.updatedAt;
+    if (
+      snap.exists() &&
+      expectedUpdatedAt &&
+      cloudUpdatedAt &&
+      cloudUpdatedAt !== expectedUpdatedAt
+    ) {
+      return { ok: false, conflict: true, id };
+    }
+
+    await setDoc(itemRef, { ...item, id }, { merge: true });
+    return { ok: true, conflict: false, id };
+  } catch (err) {
+    console.error(`upsertDocumentWithVersionCheck(${collectionName}) failed:`, err);
+    return { ok: false, conflict: false };
+  }
+};
+
+export const deleteDocument = async (collectionName, documentId) => {
+  try {
+    if (!documentId) return false;
+    const itemRef = doc(db, "companies", COMPANY_ID, collectionName, documentId);
+    await deleteDoc(itemRef);
+    return true;
+  } catch (err) {
+    console.error(`deleteDocument(${collectionName}) failed:`, err);
+    return false;
+  }
 };
 
 export const saveDocumentCollection = async (collectionName, value) => {

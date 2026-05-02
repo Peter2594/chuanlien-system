@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   LayoutDashboard,
   FileText,
@@ -23,16 +23,16 @@ import {
   Activity,
   Calendar,
   LogOut,
-  Cloud,
-  CloudOff,
   RefreshCw,
 } from "lucide-react";
 import Login from "./Login.jsx";
+import SyncStatusPanel from "./components/SyncStatusPanel.jsx";
 import {
   watchAuth,
   logout,
   fetchDocumentCollection,
-  saveDocumentCollection,
+  upsertDocumentWithVersionCheck,
+  deleteDocument,
   inferUserProfile,
   ROLE_LABELS,
 } from "./firebase.js";
@@ -8977,11 +8977,41 @@ export default function App() {
   const [customMeetings, setCustomMeetings] = useState([]);
   const [meetingHistory, setMeetingHistory] = useState([]);
   const [history, setHistory] = useState(SEED_HISTORY);
+  const reportsSnapshotRef = useRef(SEED_REPORTS);
+  const handoffsSnapshotRef = useRef(SEED_HANDOFFS);
+  const decisionsSnapshotRef = useRef(SEED_DECISIONS);
+  const blockersSnapshotRef = useRef(SEED_BLOCKERS);
+  const customMeetingsSnapshotRef = useRef([]);
+  const meetingHistorySnapshotRef = useRef([]);
+  const employeesSnapshotRef = useRef(SEED_EMPLOYEES);
+  const departmentsSnapshotRef = useRef(SEED_DEPARTMENTS);
+  const usersSnapshotRef = useRef(SEED_USERS);
+  const historySnapshotRef = useRef(SEED_HISTORY);
+  const auditLogsSnapshotRef = useRef([]);
   const blockerHistory = useMemo(() => deriveBlockerHistory(blockers, SEED_BLOCKER_HISTORY), [blockers]);
   const topicHistory = useMemo(() => deriveTopicHistory(reports, SEED_TOPIC_HISTORY), [reports]);
   const activityHistory = useMemo(() => deriveActivityHistory(reports, SEED_REPORT_ACTIVITY), [reports]);
   const [dataLoaded, setDataLoaded] = useState(false);
-  const [syncStatus, setSyncStatus] = useState("idle"); // idle | syncing | error
+  const [syncPendingCount, setSyncPendingCount] = useState(0);
+  const [syncHasError, setSyncHasError] = useState(false);
+  const [syncConflicts, setSyncConflicts] = useState([]);
+  const syncStatus = syncPendingCount > 0 ? "syncing" : (syncHasError ? "error" : "idle");
+
+  const beginSync = () => setSyncPendingCount((prev) => prev + 1);
+  const endSync = (ok = true) => {
+    setSyncPendingCount((prev) => Math.max(0, prev - 1));
+    if (!ok) setSyncHasError(true);
+  };
+  const clearSyncIssues = () => {
+    setSyncHasError(false);
+    setSyncConflicts([]);
+  };
+  const addSyncConflict = (collectionName) => {
+    setSyncConflicts((prev) => {
+      if (prev.includes(collectionName)) return prev;
+      return [...prev, collectionName];
+    });
+  };
 
   // 使用者角色資訊:優先讀 Firestore users collection,找不到才用安全 fallback。
   const userProfile = useMemo(() => {
@@ -9058,11 +9088,24 @@ export default function App() {
   // ===== 登入後從 Firestore 載入資料 =====
   useEffect(() => {
     if (!authUser) {
+      reportsSnapshotRef.current = [];
+      handoffsSnapshotRef.current = [];
+      decisionsSnapshotRef.current = [];
+      blockersSnapshotRef.current = [];
+      customMeetingsSnapshotRef.current = [];
+      meetingHistorySnapshotRef.current = [];
+      employeesSnapshotRef.current = [];
+      departmentsSnapshotRef.current = [];
+      usersSnapshotRef.current = [];
+      historySnapshotRef.current = [];
+      auditLogsSnapshotRef.current = [];
       setDataLoaded(false);
       return;
     }
     (async () => {
-      setSyncStatus("syncing");
+      beginSync();
+      clearSyncIssues();
+      let loadOk = true;
       try {
         const [r, h, d, b, emp, deptRows, userRows, cm, mh, logs, hist] = await Promise.all([
           fetchDocumentCollection("reports", SEED_REPORTS),
@@ -9077,10 +9120,21 @@ export default function App() {
           fetchDocumentCollection("auditLogs", []),
           fetchDocumentCollection("history", SEED_HISTORY),
         ]);
+        const nextBlockers = b.length ? b : [...SEED_BLOCKERS, ...createLegacyBlockersFromReports(r)];
+        reportsSnapshotRef.current = r;
+        handoffsSnapshotRef.current = h;
+        decisionsSnapshotRef.current = d;
+        blockersSnapshotRef.current = nextBlockers;
+        customMeetingsSnapshotRef.current = cm;
+        meetingHistorySnapshotRef.current = mh;
+        employeesSnapshotRef.current = emp;
+        departmentsSnapshotRef.current = deptRows;
+        usersSnapshotRef.current = userRows;
+        auditLogsSnapshotRef.current = logs;
         setReports(r);
         setHandoffs(h);
         setDecisions(d);
-        setBlockers(b.length ? b : [...SEED_BLOCKERS, ...createLegacyBlockersFromReports(r)]);
+        setBlockers(nextBlockers);
         setEmployees(emp);
         setDepartments(deptRows);
         setUsers(userRows);
@@ -9092,19 +9146,22 @@ export default function App() {
         // 這保證歷史案件搜尋和卡點統計分析永遠是同一份 53 筆資料。
         const hasNewFormat = hist.some((h) => String(h.id || "").startsWith("bh"));
         if (!hist.length || !hasNewFormat) {
+          historySnapshotRef.current = SEED_HISTORY;
           setHistory(SEED_HISTORY);
         } else {
           // 雲端有新格式 → 確保至少包含 SEED_HISTORY 全部 53 筆，
           // 缺少的補回（保留使用者額外新增的案件）
           const cloudIds = new Set(hist.map((h) => h.id));
           const missingSeed = SEED_HISTORY.filter((s) => !cloudIds.has(s.id));
-          setHistory(missingSeed.length ? [...hist, ...missingSeed] : hist);
+          const nextHistory = missingSeed.length ? [...hist, ...missingSeed] : hist;
+          historySnapshotRef.current = nextHistory;
+          setHistory(nextHistory);
         }
-        setSyncStatus("idle");
       } catch (err) {
         console.error("Firebase load failed:", err);
-        setSyncStatus("error");
+        loadOk = false;
       } finally {
+        endSync(loadOk);
         setDataLoaded(true);
       }
     })();
@@ -9112,81 +9169,489 @@ export default function App() {
 
   // ===== 資料變動時自動同步到 Firestore =====
   useEffect(() => {
-    if (dataLoaded && authUser) {
-      setSyncStatus("syncing");
-      saveDocumentCollection("reports", reports).then((ok) =>
-        setSyncStatus(ok ? "idle" : "error")
-      );
-    }
+    if (!(dataLoaded && authUser)) return;
+    let cancelled = false;
+    const syncReports = async () => {
+      beginSync();
+      const prevItems = Array.isArray(reportsSnapshotRef.current) ? reportsSnapshotRef.current : [];
+      const nextItems = Array.isArray(reports) ? reports : [];
+      const prevMap = new Map(prevItems.map((item, index) => [item?.id || `report-${index}`, item]));
+      const nextMap = new Map(nextItems.map((item, index) => [item?.id || `report-${index}`, item]));
+
+      const tasks = [];
+      nextMap.forEach((item, id) => {
+        const prev = prevMap.get(id);
+        if (!prev || JSON.stringify(prev) !== JSON.stringify(item)) {
+          tasks.push(
+            upsertDocumentWithVersionCheck("reports", item, prev?.updatedAt)
+          );
+        }
+      });
+      prevMap.forEach((_, id) => {
+        if (!nextMap.has(id)) {
+          tasks.push(deleteDocument("reports", id));
+        }
+      });
+
+      if (!tasks.length) {
+        if (!cancelled) endSync(true);
+        return;
+      }
+
+      const results = await Promise.all(tasks);
+      if (cancelled) {
+        endSync(true);
+        return;
+      }
+      const hasConflict = results.some((r) => r?.conflict);
+      const ok = results.every((r) => r?.ok);
+      if (ok) reportsSnapshotRef.current = nextItems;
+      if (hasConflict) addSyncConflict("reports");
+      endSync(ok);
+    };
+    syncReports();
+    return () => {
+      cancelled = true;
+    };
   }, [reports, dataLoaded, authUser]);
 
   useEffect(() => {
-    if (dataLoaded && authUser) {
-      setSyncStatus("syncing");
-      saveDocumentCollection("handoffs", handoffs).then((ok) =>
-        setSyncStatus(ok ? "idle" : "error")
-      );
-    }
+    if (!(dataLoaded && authUser)) return;
+    let cancelled = false;
+    const syncHandoffs = async () => {
+      beginSync();
+      const prevItems = Array.isArray(handoffsSnapshotRef.current) ? handoffsSnapshotRef.current : [];
+      const nextItems = Array.isArray(handoffs) ? handoffs : [];
+      const prevMap = new Map(prevItems.map((item, index) => [item?.id || `handoff-${index}`, item]));
+      const nextMap = new Map(nextItems.map((item, index) => [item?.id || `handoff-${index}`, item]));
+
+      const tasks = [];
+      nextMap.forEach((item, id) => {
+        const prev = prevMap.get(id);
+        if (!prev || JSON.stringify(prev) !== JSON.stringify(item)) {
+          tasks.push(
+            upsertDocumentWithVersionCheck("handoffs", item, prev?.updatedAt)
+          );
+        }
+      });
+      prevMap.forEach((_, id) => {
+        if (!nextMap.has(id)) {
+          tasks.push(deleteDocument("handoffs", id));
+        }
+      });
+
+      if (!tasks.length) {
+        if (!cancelled) endSync(true);
+        return;
+      }
+
+      const results = await Promise.all(tasks);
+      if (cancelled) {
+        endSync(true);
+        return;
+      }
+      const hasConflict = results.some((r) => r?.conflict);
+      const ok = results.every((r) => r?.ok);
+      if (ok) handoffsSnapshotRef.current = nextItems;
+      if (hasConflict) addSyncConflict("handoffs");
+      endSync(ok);
+    };
+    syncHandoffs();
+    return () => {
+      cancelled = true;
+    };
   }, [handoffs, dataLoaded, authUser]);
 
   useEffect(() => {
-    if (dataLoaded && authUser) {
-      setSyncStatus("syncing");
-      saveDocumentCollection("decisions", decisions).then((ok) =>
-        setSyncStatus(ok ? "idle" : "error")
-      );
-    }
+    if (!(dataLoaded && authUser)) return;
+    let cancelled = false;
+    const syncDecisions = async () => {
+      beginSync();
+      const prevItems = Array.isArray(decisionsSnapshotRef.current) ? decisionsSnapshotRef.current : [];
+      const nextItems = Array.isArray(decisions) ? decisions : [];
+      const prevMap = new Map(prevItems.map((item, index) => [item?.id || `decision-${index}`, item]));
+      const nextMap = new Map(nextItems.map((item, index) => [item?.id || `decision-${index}`, item]));
+
+      const tasks = [];
+      nextMap.forEach((item, id) => {
+        const prev = prevMap.get(id);
+        if (!prev || JSON.stringify(prev) !== JSON.stringify(item)) {
+          tasks.push(
+            upsertDocumentWithVersionCheck("decisions", item, prev?.updatedAt)
+          );
+        }
+      });
+      prevMap.forEach((_, id) => {
+        if (!nextMap.has(id)) {
+          tasks.push(deleteDocument("decisions", id));
+        }
+      });
+
+      if (!tasks.length) {
+        if (!cancelled) endSync(true);
+        return;
+      }
+
+      const results = await Promise.all(tasks);
+      if (cancelled) {
+        endSync(true);
+        return;
+      }
+      const hasConflict = results.some((r) => r?.conflict);
+      const ok = results.every((r) => r?.ok);
+      if (ok) decisionsSnapshotRef.current = nextItems;
+      if (hasConflict) addSyncConflict("decisions");
+      endSync(ok);
+    };
+    syncDecisions();
+    return () => {
+      cancelled = true;
+    };
   }, [decisions, dataLoaded, authUser]);
 
   useEffect(() => {
-    if (dataLoaded && authUser) {
-      setSyncStatus("syncing");
-      saveDocumentCollection("blockers", blockers).then((ok) =>
-        setSyncStatus(ok ? "idle" : "error")
-      );
-    }
+    if (!(dataLoaded && authUser)) return;
+    let cancelled = false;
+    const syncBlockers = async () => {
+      beginSync();
+      const prevItems = Array.isArray(blockersSnapshotRef.current) ? blockersSnapshotRef.current : [];
+      const nextItems = Array.isArray(blockers) ? blockers : [];
+      const prevMap = new Map(prevItems.map((item, index) => [item?.id || `blocker-${index}`, item]));
+      const nextMap = new Map(nextItems.map((item, index) => [item?.id || `blocker-${index}`, item]));
+
+      const tasks = [];
+      nextMap.forEach((item, id) => {
+        const prev = prevMap.get(id);
+        if (!prev || JSON.stringify(prev) !== JSON.stringify(item)) {
+          tasks.push(
+            upsertDocumentWithVersionCheck("blockers", item, prev?.updatedAt)
+          );
+        }
+      });
+      prevMap.forEach((_, id) => {
+        if (!nextMap.has(id)) {
+          tasks.push(deleteDocument("blockers", id));
+        }
+      });
+
+      if (!tasks.length) {
+        if (!cancelled) endSync(true);
+        return;
+      }
+
+      const results = await Promise.all(tasks);
+      if (cancelled) {
+        endSync(true);
+        return;
+      }
+      const hasConflict = results.some((r) => r?.conflict);
+      const ok = results.every((r) => r?.ok);
+      if (ok) blockersSnapshotRef.current = nextItems;
+      if (hasConflict) addSyncConflict("blockers");
+      endSync(ok);
+    };
+    syncBlockers();
+    return () => {
+      cancelled = true;
+    };
   }, [blockers, dataLoaded, authUser]);
 
   useEffect(() => {
-    if (dataLoaded && authUser) {
-      saveDocumentCollection("customMeetings", customMeetings);
-    }
+    if (!(dataLoaded && authUser)) return;
+    let cancelled = false;
+    const syncCustomMeetings = async () => {
+      beginSync();
+      const prevItems = Array.isArray(customMeetingsSnapshotRef.current) ? customMeetingsSnapshotRef.current : [];
+      const nextItems = Array.isArray(customMeetings) ? customMeetings : [];
+      const prevMap = new Map(prevItems.map((item, index) => [item?.id || `customMeeting-${index}`, item]));
+      const nextMap = new Map(nextItems.map((item, index) => [item?.id || `customMeeting-${index}`, item]));
+
+      const tasks = [];
+      nextMap.forEach((item, id) => {
+        const prev = prevMap.get(id);
+        if (!prev || JSON.stringify(prev) !== JSON.stringify(item)) {
+          tasks.push(
+            upsertDocumentWithVersionCheck(
+              "customMeetings",
+              item,
+              prev?.updatedAt
+            )
+          );
+        }
+      });
+      prevMap.forEach((_, id) => {
+        if (!nextMap.has(id)) {
+          tasks.push(deleteDocument("customMeetings", id));
+        }
+      });
+
+      if (!tasks.length) {
+        if (!cancelled) endSync(true);
+        return;
+      }
+
+      const results = await Promise.all(tasks);
+      if (cancelled) {
+        endSync(true);
+        return;
+      }
+      const hasConflict = results.some((r) => r?.conflict);
+      const ok = results.every((r) => r?.ok);
+      if (ok) customMeetingsSnapshotRef.current = nextItems;
+      if (hasConflict) addSyncConflict("customMeetings");
+      endSync(ok);
+    };
+    syncCustomMeetings();
+    return () => {
+      cancelled = true;
+    };
   }, [customMeetings, dataLoaded, authUser]);
 
   useEffect(() => {
-    if (dataLoaded && authUser) {
-      saveDocumentCollection("meetingHistory", meetingHistory);
-    }
+    if (!(dataLoaded && authUser)) return;
+    let cancelled = false;
+    const syncMeetingHistory = async () => {
+      beginSync();
+      const prevItems = Array.isArray(meetingHistorySnapshotRef.current) ? meetingHistorySnapshotRef.current : [];
+      const nextItems = Array.isArray(meetingHistory) ? meetingHistory : [];
+      const prevMap = new Map(prevItems.map((item, index) => [item?.id || `meetingHistory-${index}`, item]));
+      const nextMap = new Map(nextItems.map((item, index) => [item?.id || `meetingHistory-${index}`, item]));
+
+      const tasks = [];
+      nextMap.forEach((item, id) => {
+        const prev = prevMap.get(id);
+        if (!prev || JSON.stringify(prev) !== JSON.stringify(item)) {
+          tasks.push(
+            upsertDocumentWithVersionCheck("meetingHistory", item, prev?.updatedAt)
+          );
+        }
+      });
+      prevMap.forEach((_, id) => {
+        if (!nextMap.has(id)) {
+          tasks.push(deleteDocument("meetingHistory", id));
+        }
+      });
+
+      if (!tasks.length) {
+        if (!cancelled) endSync(true);
+        return;
+      }
+
+      const results = await Promise.all(tasks);
+      if (cancelled) {
+        endSync(true);
+        return;
+      }
+      const hasConflict = results.some((r) => r?.conflict);
+      const ok = results.every((r) => r?.ok);
+      if (ok) meetingHistorySnapshotRef.current = nextItems;
+      if (hasConflict) addSyncConflict("meetingHistory");
+      endSync(ok);
+    };
+    syncMeetingHistory();
+    return () => {
+      cancelled = true;
+    };
   }, [meetingHistory, dataLoaded, authUser]);
 
   useEffect(() => {
-    if (dataLoaded && authUser) {
-      saveDocumentCollection("employees", employees);
-    }
+    if (!(dataLoaded && authUser)) return;
+    let cancelled = false;
+    const syncEmployees = async () => {
+      beginSync();
+      const prevItems = Array.isArray(employeesSnapshotRef.current) ? employeesSnapshotRef.current : [];
+      const nextItems = Array.isArray(employees) ? employees : [];
+      const prevMap = new Map(prevItems.map((item, index) => [item?.id || `employee-${index}`, item]));
+      const nextMap = new Map(nextItems.map((item, index) => [item?.id || `employee-${index}`, item]));
+      const tasks = [];
+      nextMap.forEach((item, id) => {
+        const prev = prevMap.get(id);
+        if (!prev || JSON.stringify(prev) !== JSON.stringify(item)) {
+          tasks.push(upsertDocumentWithVersionCheck("employees", item, prev?.updatedAt));
+        }
+      });
+      prevMap.forEach((_, id) => {
+        if (!nextMap.has(id)) tasks.push(deleteDocument("employees", id));
+      });
+      if (!tasks.length) {
+        if (!cancelled) endSync(true);
+        return;
+      }
+      const results = await Promise.all(tasks);
+      if (cancelled) {
+        endSync(true);
+        return;
+      }
+      const hasConflict = results.some((r) => r?.conflict);
+      const ok = results.every((r) => r?.ok);
+      if (ok) employeesSnapshotRef.current = nextItems;
+      if (hasConflict) addSyncConflict("employees");
+      endSync(ok);
+    };
+    syncEmployees();
+    return () => {
+      cancelled = true;
+    };
   }, [employees, dataLoaded, authUser]);
 
   useEffect(() => {
-    if (dataLoaded && authUser) {
-      saveDocumentCollection("history", history);
-    }
+    if (!(dataLoaded && authUser)) return;
+    let cancelled = false;
+    const syncHistory = async () => {
+      beginSync();
+      const prevItems = Array.isArray(historySnapshotRef.current) ? historySnapshotRef.current : [];
+      const nextItems = Array.isArray(history) ? history : [];
+      const prevMap = new Map(prevItems.map((item, index) => [item?.id || `history-${index}`, item]));
+      const nextMap = new Map(nextItems.map((item, index) => [item?.id || `history-${index}`, item]));
+      const tasks = [];
+      nextMap.forEach((item, id) => {
+        const prev = prevMap.get(id);
+        if (!prev || JSON.stringify(prev) !== JSON.stringify(item)) {
+          tasks.push(upsertDocumentWithVersionCheck("history", item, prev?.updatedAt));
+        }
+      });
+      prevMap.forEach((_, id) => {
+        if (!nextMap.has(id)) tasks.push(deleteDocument("history", id));
+      });
+      if (!tasks.length) {
+        if (!cancelled) endSync(true);
+        return;
+      }
+      const results = await Promise.all(tasks);
+      if (cancelled) {
+        endSync(true);
+        return;
+      }
+      const hasConflict = results.some((r) => r?.conflict);
+      const ok = results.every((r) => r?.ok);
+      if (ok) historySnapshotRef.current = nextItems;
+      if (hasConflict) addSyncConflict("history");
+      endSync(ok);
+    };
+    syncHistory();
+    return () => {
+      cancelled = true;
+    };
   }, [history, dataLoaded, authUser]);
 
   useEffect(() => {
-    if (dataLoaded && authUser) {
-      saveDocumentCollection("departments", departments);
-    }
+    if (!(dataLoaded && authUser)) return;
+    let cancelled = false;
+    const syncDepartments = async () => {
+      beginSync();
+      const prevItems = Array.isArray(departmentsSnapshotRef.current) ? departmentsSnapshotRef.current : [];
+      const nextItems = Array.isArray(departments) ? departments : [];
+      const prevMap = new Map(prevItems.map((item, index) => [item?.id || `department-${index}`, item]));
+      const nextMap = new Map(nextItems.map((item, index) => [item?.id || `department-${index}`, item]));
+      const tasks = [];
+      nextMap.forEach((item, id) => {
+        const prev = prevMap.get(id);
+        if (!prev || JSON.stringify(prev) !== JSON.stringify(item)) {
+          tasks.push(upsertDocumentWithVersionCheck("departments", item, prev?.updatedAt));
+        }
+      });
+      prevMap.forEach((_, id) => {
+        if (!nextMap.has(id)) tasks.push(deleteDocument("departments", id));
+      });
+      if (!tasks.length) {
+        if (!cancelled) endSync(true);
+        return;
+      }
+      const results = await Promise.all(tasks);
+      if (cancelled) {
+        endSync(true);
+        return;
+      }
+      const hasConflict = results.some((r) => r?.conflict);
+      const ok = results.every((r) => r?.ok);
+      if (ok) departmentsSnapshotRef.current = nextItems;
+      if (hasConflict) addSyncConflict("departments");
+      endSync(ok);
+    };
+    syncDepartments();
+    return () => {
+      cancelled = true;
+    };
   }, [departments, dataLoaded, authUser]);
 
   useEffect(() => {
-    if (dataLoaded && authUser) {
-      saveDocumentCollection("users", users);
-    }
+    if (!(dataLoaded && authUser)) return;
+    let cancelled = false;
+    const syncUsers = async () => {
+      beginSync();
+      const prevItems = Array.isArray(usersSnapshotRef.current) ? usersSnapshotRef.current : [];
+      const nextItems = Array.isArray(users) ? users : [];
+      const prevMap = new Map(prevItems.map((item, index) => [item?.id || `user-${index}`, item]));
+      const nextMap = new Map(nextItems.map((item, index) => [item?.id || `user-${index}`, item]));
+      const tasks = [];
+      nextMap.forEach((item, id) => {
+        const prev = prevMap.get(id);
+        if (!prev || JSON.stringify(prev) !== JSON.stringify(item)) {
+          tasks.push(upsertDocumentWithVersionCheck("users", item, prev?.updatedAt));
+        }
+      });
+      prevMap.forEach((_, id) => {
+        if (!nextMap.has(id)) tasks.push(deleteDocument("users", id));
+      });
+      if (!tasks.length) {
+        if (!cancelled) endSync(true);
+        return;
+      }
+      const results = await Promise.all(tasks);
+      if (cancelled) {
+        endSync(true);
+        return;
+      }
+      const hasConflict = results.some((r) => r?.conflict);
+      const ok = results.every((r) => r?.ok);
+      if (ok) usersSnapshotRef.current = nextItems;
+      if (hasConflict) addSyncConflict("users");
+      endSync(ok);
+    };
+    syncUsers();
+    return () => {
+      cancelled = true;
+    };
   }, [users, dataLoaded, authUser]);
 
   useEffect(() => {
-    if (dataLoaded && authUser) {
-      saveDocumentCollection("auditLogs", auditLogs);
-    }
+    if (!(dataLoaded && authUser)) return;
+    let cancelled = false;
+    const syncAuditLogs = async () => {
+      beginSync();
+      const prevItems = Array.isArray(auditLogsSnapshotRef.current) ? auditLogsSnapshotRef.current : [];
+      const nextItems = Array.isArray(auditLogs) ? auditLogs : [];
+      const prevMap = new Map(prevItems.map((item, index) => [item?.id || `audit-${index}`, item]));
+      const nextMap = new Map(nextItems.map((item, index) => [item?.id || `audit-${index}`, item]));
+      const tasks = [];
+      nextMap.forEach((item, id) => {
+        const prev = prevMap.get(id);
+        if (!prev || JSON.stringify(prev) !== JSON.stringify(item)) {
+          tasks.push(upsertDocumentWithVersionCheck("auditLogs", item, prev?.updatedAt));
+        }
+      });
+      prevMap.forEach((_, id) => {
+        if (!nextMap.has(id)) tasks.push(deleteDocument("auditLogs", id));
+      });
+      if (!tasks.length) {
+        if (!cancelled) endSync(true);
+        return;
+      }
+      const results = await Promise.all(tasks);
+      if (cancelled) {
+        endSync(true);
+        return;
+      }
+      const hasConflict = results.some((r) => r?.conflict);
+      const ok = results.every((r) => r?.ok);
+      if (ok) auditLogsSnapshotRef.current = nextItems;
+      if (hasConflict) addSyncConflict("auditLogs");
+      endSync(ok);
+    };
+    syncAuditLogs();
+    return () => {
+      cancelled = true;
+    };
   }, [auditLogs, dataLoaded, authUser]);
 
   const navigateTo = (t, id) => {
@@ -9215,30 +9680,60 @@ export default function App() {
 
   const handleRefresh = async () => {
     if (!authUser) return;
-    setSyncStatus("syncing");
-    const [r, h, d, b, emp, deptRows, userRows, cm, mh, logs] = await Promise.all([
-      fetchDocumentCollection("reports", SEED_REPORTS),
-      fetchDocumentCollection("handoffs", SEED_HANDOFFS),
-      fetchDocumentCollection("decisions", SEED_DECISIONS),
-      fetchDocumentCollection("blockers", []),
-      fetchDocumentCollection("employees", SEED_EMPLOYEES),
-      fetchDocumentCollection("departments", SEED_DEPARTMENTS),
-      fetchDocumentCollection("users", SEED_USERS),
-      fetchDocumentCollection("customMeetings", []),
-      fetchDocumentCollection("meetingHistory", []),
-      fetchDocumentCollection("auditLogs", []),
-    ]);
-    setReports(r);
-    setHandoffs(h);
-    setDecisions(d);
-    setBlockers(b.length ? b : [...SEED_BLOCKERS, ...createLegacyBlockersFromReports(r)]);
-    setEmployees(emp);
-    setDepartments(deptRows);
-    setUsers(userRows);
-    setCustomMeetings(cm);
-    setMeetingHistory(mh);
-    setAuditLogs(logs);
-    setSyncStatus("idle");
+    beginSync();
+    clearSyncIssues();
+    let ok = true;
+    try {
+      const [r, h, d, b, emp, deptRows, userRows, cm, mh, logs, hist] = await Promise.all([
+        fetchDocumentCollection("reports", SEED_REPORTS),
+        fetchDocumentCollection("handoffs", SEED_HANDOFFS),
+        fetchDocumentCollection("decisions", SEED_DECISIONS),
+        fetchDocumentCollection("blockers", []),
+        fetchDocumentCollection("employees", SEED_EMPLOYEES),
+        fetchDocumentCollection("departments", SEED_DEPARTMENTS),
+        fetchDocumentCollection("users", SEED_USERS),
+        fetchDocumentCollection("customMeetings", []),
+        fetchDocumentCollection("meetingHistory", []),
+        fetchDocumentCollection("auditLogs", []),
+        fetchDocumentCollection("history", SEED_HISTORY),
+      ]);
+      const nextBlockers = b.length ? b : [...SEED_BLOCKERS, ...createLegacyBlockersFromReports(r)];
+      const hasNewFormat = hist.some((item) => String(item.id || "").startsWith("bh"));
+      const nextHistory = (!hist.length || !hasNewFormat)
+        ? SEED_HISTORY
+        : (() => {
+            const cloudIds = new Set(hist.map((item) => item.id));
+            const missingSeed = SEED_HISTORY.filter((seedItem) => !cloudIds.has(seedItem.id));
+            return missingSeed.length ? [...hist, ...missingSeed] : hist;
+          })();
+      reportsSnapshotRef.current = r;
+      handoffsSnapshotRef.current = h;
+      decisionsSnapshotRef.current = d;
+      blockersSnapshotRef.current = nextBlockers;
+      customMeetingsSnapshotRef.current = cm;
+      meetingHistorySnapshotRef.current = mh;
+      employeesSnapshotRef.current = emp;
+      departmentsSnapshotRef.current = deptRows;
+      usersSnapshotRef.current = userRows;
+      auditLogsSnapshotRef.current = logs;
+      historySnapshotRef.current = nextHistory;
+      setReports(r);
+      setHandoffs(h);
+      setDecisions(d);
+      setBlockers(nextBlockers);
+      setEmployees(emp);
+      setDepartments(deptRows);
+      setUsers(userRows);
+      setCustomMeetings(cm);
+      setMeetingHistory(mh);
+      setAuditLogs(logs);
+      setHistory(nextHistory);
+    } catch (err) {
+      ok = false;
+      console.error("Refresh failed:", err);
+    } finally {
+      endSync(ok);
+    }
   };
 
   // ===== 渲染分支 =====
@@ -9385,51 +9880,12 @@ export default function App() {
 
         {/* 使用者資訊區塊 */}
         <div style={{ padding: "12px", borderTop: "1px solid " + C.borderLight, marginTop: 12 }}>
-          {/* 同步狀態指示 */}
-          <div style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            fontSize: 11,
-            color: syncStatus === "error" ? C.danger : syncStatus === "syncing" ? C.warn : C.success,
-            marginBottom: 10,
-            padding: "6px 8px",
-            background: syncStatus === "error" ? C.dangerLight : syncStatus === "syncing" ? C.warnLight : C.successLight,
-            borderRadius: 6,
-          }}>
-            {syncStatus === "syncing" && (
-              <>
-                <RefreshCw size={11} style={{ animation: "spin 1s linear infinite" }} />
-                同步中...
-              </>
-            )}
-            {syncStatus === "idle" && (
-              <>
-                <Cloud size={11} />
-                已同步至雲端
-              </>
-            )}
-            {syncStatus === "error" && (
-              <>
-                <CloudOff size={11} />
-                同步失敗
-                <button
-                  onClick={handleRefresh}
-                  style={{
-                    marginLeft: "auto",
-                    background: "none",
-                    border: "none",
-                    color: C.danger,
-                    fontSize: 10,
-                    cursor: "pointer",
-                    textDecoration: "underline",
-                  }}
-                >
-                  重試
-                </button>
-              </>
-            )}
-          </div>
+          <SyncStatusPanel
+            syncStatus={syncStatus}
+            syncConflicts={syncConflicts}
+            onRetry={handleRefresh}
+            colors={C}
+          />
 
           {/* 使用者卡片 */}
           <div style={{

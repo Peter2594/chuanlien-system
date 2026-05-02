@@ -32,6 +32,29 @@ npm install
 
 ---
 
+### 步驟 2.5:設定 Firebase 環境變數(建議)
+
+在專案目錄複製一份 `.env.example` 成 `.env.local`，填入 Firebase 專案設定值：
+
+```cmd
+copy .env.example .env.local
+```
+
+之後在 `.env.local` 內填入：
+
+```
+VITE_FIREBASE_API_KEY=...
+VITE_FIREBASE_AUTH_DOMAIN=...
+VITE_FIREBASE_PROJECT_ID=...
+VITE_FIREBASE_STORAGE_BUCKET=...
+VITE_FIREBASE_MESSAGING_SENDER_ID=...
+VITE_FIREBASE_APP_ID=...
+```
+
+> 若未設定，系統仍會使用目前內建 demo 設定值。
+
+---
+
 ### 步驟 3:啟動
 
 ```cmd
@@ -253,6 +276,24 @@ match /companies/{companyId}/{collectionName}/{docId} {
 
 **Q: 別台電腦看到舊資料**
 → 關掉瀏覽器分頁重開,或按側邊欄「重試」按鈕
+
+---
+
+## 🔐 依賴安全性（npm audit）
+
+目前執行 `npm audit` 會看到：
+
+- `undici`（high）：由 `firebase` 依賴鏈帶入
+- `esbuild`（moderate）：由 `vite` 依賴鏈帶入
+
+在目前版本組合下，npm 只提供 `--force` 的修補路徑，會造成 **breaking change**（例如升級到 `vite@8`、`firebase@12`）。此專案為 prototype，預設先維持現況以避免升級導致功能中斷。
+
+若你要把它當正式專案維護，建議另開一個分支做升級與回歸測試：
+
+```cmd
+npm audit fix --force
+npm run build
+```
 
 ---
 
