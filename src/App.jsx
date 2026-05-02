@@ -5516,7 +5516,8 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
   const [q, setQ] = useState("FinTech 新創 Pre-A 估值");
   const [viewCase, setViewCase] = useState(null);
   const [expandedId, setExpandedId] = useState(null);
-  const [mode, setMode] = useState("list"); // "list" | "create"
+  const [mode, setMode] = useState("list"); // "list" | "create" | "edit"
+  const [editingId, setEditingId] = useState(null);
   const emptyForm = {
     title: "", date: "", tags: "", summary: "", owner: "",
     outcome: "觀望",
@@ -5525,12 +5526,38 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
   };
   const [form, setForm] = useState(emptyForm);
 
-  const outcomeOptions = ["投資 · 報酬率 1.5x", "投資 · 仍持有", "觀望", "未投資", "其他"];
+  const outcomeOptions = ["投資 · 報酬率 1.5x", "投資 · 仍持有", "觀望", "未投資", "其他", "已解決"];
+
+  const startEdit = (caseItem) => {
+    setEditingId(caseItem.id);
+    setForm({
+      title: caseItem.title || "",
+      date: caseItem.date || "",
+      tags: (caseItem.tags || []).join(", "),
+      summary: caseItem.summary || "",
+      owner: caseItem.owner || "",
+      outcome: caseItem.outcome || "觀望",
+      background: caseItem.detail?.background || "",
+      process: caseItem.detail?.process || "",
+      valuation: caseItem.detail?.valuation || "",
+      keyInsights: (caseItem.detail?.keyInsights || []).join("\n"),
+      result: caseItem.detail?.result || "",
+      lessons: caseItem.detail?.lessons || "",
+    });
+    setMode("edit");
+  };
+
+  const deleteCase = (caseItem) => {
+    if (!window.confirm(`確認刪除案件「${caseItem.title}」？\n刪除後無法復原。`)) return;
+    setHistory(history.filter((h) => h.id !== caseItem.id));
+    setExpandedId(null);
+  };
 
   const submitCase = () => {
     if (!form.title.trim() || !form.date.trim()) return;
+    const isEdit = mode === "edit" && editingId;
     const newCase = {
-      id: "k" + Date.now(),
+      id: isEdit ? editingId : "k" + Date.now(),
       title: form.title.trim(),
       date: form.date.trim(),
       tags: form.tags.split(/[,，\s]+/).map((t) => t.trim()).filter(Boolean),
@@ -5546,13 +5573,20 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
         result: form.result.trim(),
         lessons: form.lessons.trim(),
       },
-      createdBy: userProfile?.email || "",
-      createdAt: new Date().toISOString(),
+      createdBy: isEdit ? (history.find((h) => h.id === editingId)?.createdBy || "") : (userProfile?.email || ""),
+      createdAt: isEdit ? (history.find((h) => h.id === editingId)?.createdAt || new Date().toISOString()) : new Date().toISOString(),
+      updatedBy: userProfile?.email || "",
+      updatedAt: new Date().toISOString(),
     };
-    setHistory([newCase, ...history]);
+    if (isEdit) {
+      setHistory(history.map((h) => (h.id === editingId ? newCase : h)));
+    } else {
+      setHistory([newCase, ...history]);
+    }
     setForm(emptyForm);
+    setEditingId(null);
     setMode("list");
-    setQ(newCase.tags[0] || "");
+    if (!isEdit) setQ(newCase.tags[0] || "");
   };
 
   const inputStyle = {
@@ -5562,16 +5596,21 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
   };
   const labelStyle = { fontSize: 12, color: "#6E6862", marginBottom: 5, fontWeight: 500, display: "block" };
 
-  if (mode === "create") {
+  if (mode === "create" || mode === "edit") {
     const canSubmit = form.title.trim() && form.date.trim();
+    const isEdit = mode === "edit";
     return (
       <div style={{ padding: "24px 28px", maxWidth: 760 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20 }}>
           <div>
-            <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>NEW CASE</div>
-            <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>新增歷史案件</h1>
+            <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>
+              {isEdit ? "EDIT CASE" : "NEW CASE"}
+            </div>
+            <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>
+              {isEdit ? "編輯歷史案件" : "新增歷史案件"}
+            </h1>
           </div>
-          <Button variant="ghost" onClick={() => setMode("list")}>取消</Button>
+          <Button variant="ghost" onClick={() => { setMode("list"); setEditingId(null); setForm(emptyForm); }}>取消</Button>
         </div>
         <Card style={{ padding: 22 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
@@ -5636,8 +5675,10 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
           </div>
 
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <Button variant="secondary" onClick={() => setMode("list")}>取消</Button>
-            <Button variant="primary" onClick={submitCase} disabled={!canSubmit} icon={Plus}>儲存案件</Button>
+            <Button variant="secondary" onClick={() => { setMode("list"); setEditingId(null); setForm(emptyForm); }}>取消</Button>
+            <Button variant="primary" onClick={submitCase} disabled={!canSubmit} icon={Plus}>
+              {isEdit ? "更新案件" : "儲存案件"}
+            </Button>
           </div>
         </Card>
       </div>
@@ -5676,15 +5717,29 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
     return { relatedHandoffs, relatedDecisions, relatedReports };
   };
 
+  // 全文搜尋：tag 不再是唯一關鍵字依據，所有有意義的欄位都納入比對
+  // 標題 (高權重) > 標籤 > 摘要 > 結論/負責人 > 案件詳情內容
   const score = (item) => {
     if (!q.trim()) return 100;
     const terms = q.split(/\s+/).filter(Boolean);
+    const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     let s = 0;
     terms.forEach((t) => {
-      const re = new RegExp(t, "i");
-      if (re.test(item.title)) s += 30;
-      if (re.test(item.summary)) s += 15;
-      item.tags.forEach((tag) => { if (re.test(tag)) s += 25; });
+      const re = new RegExp(escapeRegex(t), "i");
+      if (re.test(item.title || "")) s += 30;
+      (item.tags || []).forEach((tag) => { if (re.test(tag)) s += 25; });
+      if (re.test(item.summary || "")) s += 15;
+      if (re.test(item.outcome || "")) s += 10;
+      if (re.test(item.owner || "")) s += 10;
+      if (re.test(item.date || "")) s += 8;
+      // 案件詳情內容
+      const detail = item.detail || {};
+      if (re.test(detail.background || "")) s += 8;
+      if (re.test(detail.process || "")) s += 8;
+      if (re.test(detail.valuation || "")) s += 8;
+      if (re.test(detail.result || "")) s += 8;
+      if (re.test(detail.lessons || "")) s += 8;
+      (detail.keyInsights || []).forEach((k) => { if (re.test(k)) s += 6; });
     });
     return Math.min(100, s);
   };
@@ -5906,16 +5961,38 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
                           );
                         })()}
 
-                        <button
-                          onClick={() => setViewCase(r)}
-                          style={{
-                            marginTop: 8, padding: "6px 14px", background: C.accent, color: "white",
-                            border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600,
-                            cursor: "pointer", fontFamily: "inherit",
-                          }}
-                        >
-                          查看完整視窗
-                        </button>
+                        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                          <button
+                            onClick={() => setViewCase(r)}
+                            style={{
+                              padding: "6px 14px", background: C.accent, color: "white",
+                              border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                              cursor: "pointer", fontFamily: "inherit",
+                            }}
+                          >
+                            查看完整視窗
+                          </button>
+                          <button
+                            onClick={() => startEdit(r)}
+                            style={{
+                              padding: "6px 14px", background: "white", color: C.text,
+                              border: "1px solid " + C.border, borderRadius: 6, fontSize: 12, fontWeight: 600,
+                              cursor: "pointer", fontFamily: "inherit",
+                            }}
+                          >
+                            ✎ 編輯
+                          </button>
+                          <button
+                            onClick={() => deleteCase(r)}
+                            style={{
+                              padding: "6px 14px", background: "white", color: C.danger,
+                              border: "1px solid " + C.danger + "60", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                              cursor: "pointer", fontFamily: "inherit",
+                            }}
+                          >
+                            🗑 刪除
+                          </button>
+                        </div>
                       </>
                     ) : (
                       <div style={{ fontSize: 12, color: C.textMid, padding: "8px 0" }}>
@@ -6464,18 +6541,20 @@ function BlockerAnalytics({ blockerHistory, blockers = [], reports = [], history
 // 決策追蹤頁面
 // ============================================================
 function Decisions({ decisions, setDecisions, departments = SEED_DEPARTMENTS, userProfile }) {
-  const [mode, setMode] = useState("list");
+  const [mode, setMode] = useState("list"); // "list" | "create" | "edit"
   const [viewing, setViewing] = useState(null);
+  const [editingId, setEditingId] = useState(null);
   const deptNames = allDeptNames(departments);
   const defaultAssignedDept = activeDeptNames(departments)[0] || deptNames[0] || "";
-  const [form, setForm] = useState({
+  const emptyForm = {
     title: "",
     content: "",
     decidedBy: "董事會",
     assignedDept: defaultAssignedDept,
     dueDate: "",
     notes: "",
-  });
+  };
+  const [form, setForm] = useState(emptyForm);
 
   useEffect(() => {
     if (!deptNames.length) return;
@@ -6498,24 +6577,53 @@ function Decisions({ decisions, setDecisions, departments = SEED_DEPARTMENTS, us
     if (!isComplete(form)) return;
     const today = new Date().toISOString().slice(0, 10);
     const now = new Date().toISOString();
+    const isEdit = mode === "edit" && editingId;
+    const existing = isEdit ? decisions.find((d) => d.id === editingId) : null;
     const newDecision = {
-      id: "d" + Date.now(),
+      id: isEdit ? editingId : "d" + Date.now(),
       title: form.title,
       content: form.content,
       decidedBy: form.decidedBy,
-      decidedAt: today,
+      decidedAt: existing?.decidedAt || today,
       dueDate: form.dueDate,
       assignedDept: form.assignedDept,
-      status: "執行中",
-      linkedCases: [],
+      status: existing?.status || "執行中",
+      linkedCases: existing?.linkedCases || [],
       notes: form.notes,
-      createdBy: userProfile?.email || form.decidedBy,
+      completedAt: existing?.completedAt,
+      createdBy: existing?.createdBy || (userProfile?.email || form.decidedBy),
+      createdAt: existing?.createdAt || now,
       updatedBy: userProfile?.email || form.decidedBy,
       updatedAt: now,
     };
-    setDecisions([newDecision, ...decisions]);
-    setForm({ title: "", content: "", decidedBy: "董事會", assignedDept: defaultAssignedDept, dueDate: "", notes: "" });
+    if (isEdit) {
+      setDecisions(decisions.map((d) => (d.id === editingId ? newDecision : d)));
+    } else {
+      setDecisions([newDecision, ...decisions]);
+    }
+    setForm(emptyForm);
+    setEditingId(null);
     setMode("list");
+  };
+
+  const startEditDecision = (d) => {
+    setEditingId(d.id);
+    setForm({
+      title: d.title || "",
+      content: d.content || "",
+      decidedBy: d.decidedBy || "董事會",
+      assignedDept: d.assignedDept || defaultAssignedDept,
+      dueDate: d.dueDate || "",
+      notes: d.notes || "",
+    });
+    setViewing(null);
+    setMode("edit");
+  };
+
+  const deleteDecision = (d) => {
+    if (!window.confirm(`確認刪除決策「${d.title}」？\n刪除後無法復原。`)) return;
+    setDecisions(decisions.filter((x) => x.id !== d.id));
+    setViewing(null);
   };
 
   const markDone = (id) => {
@@ -6538,16 +6646,21 @@ function Decisions({ decisions, setDecisions, departments = SEED_DEPARTMENTS, us
   };
   const labelStyle = { fontSize: 12, color: C.textMid, marginBottom: 5, fontWeight: 500, display: "block" };
 
-  if (mode === "create") {
+  if (mode === "create" || mode === "edit") {
     const complete = isComplete(form);
+    const isEdit = mode === "edit";
     return (
       <div style={{ padding: "24px 28px", maxWidth: 720 }}>
         <div style={{ marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
           <div>
-            <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>NEW DECISION</div>
-            <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>新增管理層決策</h1>
+            <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>
+              {isEdit ? "EDIT DECISION" : "NEW DECISION"}
+            </div>
+            <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>
+              {isEdit ? "編輯管理層決策" : "新增管理層決策"}
+            </h1>
           </div>
-          <Button variant="ghost" onClick={() => setMode("list")}>取消</Button>
+          <Button variant="ghost" onClick={() => { setMode("list"); setEditingId(null); setForm(emptyForm); }}>取消</Button>
         </div>
 
         <Card style={{ padding: 20 }}>
@@ -6587,8 +6700,10 @@ function Decisions({ decisions, setDecisions, departments = SEED_DEPARTMENTS, us
           </div>
 
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-            <Button variant="secondary" onClick={() => setMode("list")}>取消</Button>
-            <Button variant="primary" onClick={submit} disabled={!complete} icon={Send}>記錄決策</Button>
+            <Button variant="secondary" onClick={() => { setMode("list"); setEditingId(null); setForm(emptyForm); }}>取消</Button>
+            <Button variant="primary" onClick={submit} disabled={!complete} icon={Send}>
+              {isEdit ? "更新決策" : "記錄決策"}
+            </Button>
           </div>
         </Card>
       </div>
@@ -7005,13 +7120,21 @@ function Decisions({ decisions, setDecisions, departments = SEED_DEPARTMENTS, us
               </div>
             )}
 
-            {viewing.status !== "已完成" && (
-              <div style={{ display: "flex", justifyContent: "flex-end", paddingTop: 12, borderTop: "1px solid " + C.borderLight }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 12, borderTop: "1px solid " + C.borderLight, gap: 8 }}>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Button variant="secondary" onClick={() => startEditDecision(viewing)}>
+                  ✎ 編輯
+                </Button>
+                <Button variant="secondary" onClick={() => deleteDecision(viewing)}>
+                  🗑 刪除
+                </Button>
+              </div>
+              {viewing.status !== "已完成" && (
                 <Button variant="success" icon={Check} onClick={() => markDone(viewing.id)}>
                   標記為已完成
                 </Button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         )}
       </Modal>
