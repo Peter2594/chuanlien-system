@@ -38,20 +38,79 @@ import {
 } from "./firebase.js";
 
 // ===== 初始範例資料 =====
-// ===== 初始範例資料 =====
-// 第 42 週(本週)三部門詳細週報 + 過去 7 週(35-41)各部門歷史週報
+// ===== 動態日期：以「今天」為錨點計算週次與日期區間 =====
+const NOW = new Date();
+
+function getISOWeek(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+}
+
+// 回傳某週(weeksAgo=0 為本週)的「週一–週日」日期範圍字串，例如 "5/4 – 5/10"
+function getWeekDateRange(weeksAgo = 0) {
+  const target = new Date(NOW);
+  target.setDate(target.getDate() - weeksAgo * 7);
+  const day = target.getDay();
+  const daysToMon = day === 0 ? 6 : day - 1;
+  target.setDate(target.getDate() - daysToMon);
+  const start = new Date(target);
+  const end = new Date(target);
+  end.setDate(end.getDate() + 6);
+  const fmt = (d) => `${d.getMonth() + 1}/${d.getDate()}`;
+  return `${fmt(start)} – ${fmt(end)}`;
+}
+
+const CURRENT_WEEK_NUM = getISOWeek(NOW);
+const CURRENT_WEEK_LABEL = `第 ${CURRENT_WEEK_NUM} 週`;
+
+// 種子資料原本以「2025-10-17」為基準日期撰寫
+// 將所有 ISO 日期字串平移到今天，讓資料看起來像剛發生的
+const _SEED_BASE_DATE = new Date("2025-10-17T00:00:00");
+const _DATE_SHIFT_DAYS = Math.round((NOW - _SEED_BASE_DATE) / 86400000);
+
+function shiftDate(s) {
+  if (!s || typeof s !== "string") return s;
+  // 匹配 "YYYY-MM-DD" 開頭的字串(含後綴時間)
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})(.*)$/);
+  if (!m) return s;
+  const d = new Date(m[1] + "T00:00:00");
+  if (isNaN(d)) return s;
+  d.setDate(d.getDate() + _DATE_SHIFT_DAYS);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}${m[2] || ""}`;
+}
+
+// 遞迴將物件中所有 ISO 日期字串平移
+function shiftAllDates(obj) {
+  if (Array.isArray(obj)) return obj.map(shiftAllDates);
+  if (obj && typeof obj === "object") {
+    const out = {};
+    for (const k in obj) out[k] = shiftAllDates(obj[k]);
+    return out;
+  }
+  if (typeof obj === "string") return shiftDate(obj);
+  return obj;
+}
+
+// 第 N 週(本週)三部門詳細週報 + 過去 7 週各部門歷史週報
 // 過去週報採用較簡潔但連貫的內容,展現公司持續運作的真實感
 const SEED_REPORTS_HISTORICAL = (() => {
   const data = [];
-  const weeks = [
-    { wk: 35, label: "第 35 週", dateRange: "8/26 – 9/1" },
-    { wk: 36, label: "第 36 週", dateRange: "9/2 – 9/8" },
-    { wk: 37, label: "第 37 週", dateRange: "9/9 – 9/15" },
-    { wk: 38, label: "第 38 週", dateRange: "9/16 – 9/22" },
-    { wk: 39, label: "第 39 週", dateRange: "9/23 – 9/29" },
-    { wk: 40, label: "第 40 週", dateRange: "9/30 – 10/6" },
-    { wk: 41, label: "第 41 週", dateRange: "10/7 – 10/13" },
-  ];
+  // 動態產生過去 7 週(week-7 ~ week-1)
+  const weeks = [];
+  for (let i = 7; i >= 1; i--) {
+    const wk = CURRENT_WEEK_NUM - i;
+    weeks.push({
+      wk,
+      label: `第 ${wk} 週`,
+      dateRange: getWeekDateRange(i),
+    });
+  }
 
   // 投研部 7 週的故事線(逐步推進 A 新創、B 公司案件)
   const researchStory = [
@@ -237,11 +296,11 @@ const SEED_REPORTS_HISTORICAL = (() => {
 
 const SEED_REPORTS = [
   ...SEED_REPORTS_HISTORICAL,
-  // 第 42 週(本週) - 詳細版
+  // 本週 - 詳細版
   {
     id: "r1",
     dept: "投資研究部",
-    week: "第 42 週",
+    week: CURRENT_WEEK_LABEL,
     author: "周世倫",
     submittedAt: "2025-10-17 16:32",
     cases: "• A 新創 Pre-A 輪盡職調查(主辦)\n• B 公司產業分析報告(2/3 完成)\n• C 標的二次訪談紀錄整理\n• F 教育科技標的初篩\n• 既有投資組合季度估值更新",
@@ -253,7 +312,7 @@ const SEED_REPORTS = [
   {
     id: "r2",
     dept: "業務開發部",
-    week: "第 42 週",
+    week: CURRENT_WEEK_LABEL,
     author: "林聿平",
     submittedAt: "2025-10-17 17:05",
     cases: "• A 新創投資條件書草擬\n• Q4 新客戶開發(已接觸 7 家)\n• D 客戶 NDA 簽訂\n• G 公司初次接觸會議\n• 業界活動參訪規劃(11 月 FinTech Summit)",
@@ -265,7 +324,7 @@ const SEED_REPORTS = [
   {
     id: "r3",
     dept: "資產管理部",
-    week: "第 42 週",
+    week: CURRENT_WEEK_LABEL,
     author: "梁嘉芫",
     submittedAt: "2025-10-17 17:48",
     cases: "• 既有投資組合季度回顧(8 家被投公司報表彙整)\n• Q4 募資方案評估\n• 法遵審核排程\n• D 客戶 NDA 條款審閱\n• K 公司退場機會評估",
@@ -713,7 +772,7 @@ const SEED_HISTORY_LEGACY = [
 // 卡點資料模型與歷史 seed
 // Demo seed 刻意使用右偏解決天數,避免先假設常態分佈再用常態方法分析。
 // ============================================================
-const CURRENT_WEEK_ID = "第 42 週";
+const CURRENT_WEEK_ID = CURRENT_WEEK_LABEL;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const DEFAULT_BLOCKER_SLA_DAYS = 14;
 
@@ -741,7 +800,11 @@ function addDaysIso(dateString, days) {
 }
 
 function makeHistoryBlocker(id, category, daysToResolve, title, dept, weekNum, caseSize = "M") {
-  const createdAt = new Date(2025, 0, 6 + id * 2).toISOString();
+  // 以「今天往前 (CURRENT_WEEK_NUM - weekNum) 週」作為歷史卡點的時間點
+  const weeksAgo = Math.max(1, CURRENT_WEEK_NUM - weekNum + 1);
+  const createdAt = new Date(NOW);
+  createdAt.setDate(createdAt.getDate() - weeksAgo * 7);
+  const createdAtIso = createdAt.toISOString();
   return {
     id: "bh" + id,
     category,
@@ -749,9 +812,9 @@ function makeHistoryBlocker(id, category, daysToResolve, title, dept, weekNum, c
     dept,
     owner: "系統範例",
     status: "resolved",
-    createdAt,
-    resolvedAt: addDaysIso(createdAt, daysToResolve),
-    updatedAt: addDaysIso(createdAt, daysToResolve),
+    createdAt: createdAtIso,
+    resolvedAt: addDaysIso(createdAtIso, daysToResolve),
+    updatedAt: addDaysIso(createdAtIso, daysToResolve),
     daysToResolve,
     crossDepts: 1 + (id % 3),
     caseSize,
@@ -786,17 +849,21 @@ const SEED_HISTORY = SEED_BLOCKER_HISTORY.map((b) => {
   const cat = BLOCKER_CATEGORIES.find((c) => c.key === b.category) || BLOCKER_CATEGORIES[BLOCKER_CATEGORIES.length - 1];
   const speed = b.daysToResolve <= 3 ? "快速解決" : b.daysToResolve <= 7 ? "正常解決" : b.daysToResolve <= 14 ? "較慢解決" : "嚴重延誤";
   const insights = categoryInsights[b.category] || [];
+  // 把 weekNum 18-30 區間轉成現在的相對週次
+  const relWeek = b.createdAt
+    ? getISOWeek(new Date(b.createdAt))
+    : Math.max(1, CURRENT_WEEK_NUM - (30 - b.weekNum));
   return {
     id: b.id,
     title: b.title,
-    date: `第 ${b.weekNum} 週`,
+    date: `第 ${relWeek} 週`,
     tags: [b.category, b.dept, speed],
     summary: `${b.dept}處理的${b.category}類卡點，歷時 ${b.daysToResolve} 天完成解決。`,
     owner: b.dept,
     handoffs: b.crossDepts || 1,
     outcome: `已解決 · ${b.daysToResolve} 天`,
     detail: {
-      background: `本卡點屬於「${b.category}」類別，發生於第 ${b.weekNum} 週，由 ${b.dept} 主責處理。`,
+      background: `本卡點屬於「${b.category}」類別，發生於第 ${relWeek} 週，由 ${b.dept} 主責處理。`,
       process: `共歷時 ${b.daysToResolve} 天完成解決，期間涉及 ${b.crossDepts || 1} 次跨部門協作，案件規模：${b.caseSize || "M"}。`,
       valuation: `解決時間：${b.daysToResolve} 天 · 同類平均：${b.category === "法遵/合約" ? "7.8" : b.category === "資金/募資" ? "5.7" : b.category === "資料/補件" ? "6.4" : b.category === "跨部門/窗口" ? "4.6" : b.category === "決策/簽核" ? "9.2" : "5.0"} 天`,
       keyInsights: insights,
@@ -1597,6 +1664,14 @@ const SEED_EMPLOYEES = [
   { name: "蘇柏豪", dept: "資產管理部", role: "投資組合分析師" },
   { name: "邱筱慧", dept: "資產管理部", role: "風險管理專員" },
 ];
+
+// 將所有 SEED 資料中的 ISO 日期字串平移到今天 (以 2025-10-17 為基準)
+// 這樣 demo 啟動時所有「最近事件」都會看起來像剛發生
+if (_DATE_SHIFT_DAYS !== 0) {
+  [SEED_REPORTS, SEED_HANDOFFS, SEED_DECISIONS, SEED_BLOCKERS, SEED_HISTORY].forEach((arr) => {
+    arr.forEach((item) => Object.assign(item, shiftAllDates(item)));
+  });
+}
 
 function activeDeptNames(departments = SEED_DEPARTMENTS) {
   return departments.filter((d) => d.active !== false && d.name !== "營運與管理層").map((d) => d.name);
@@ -2672,26 +2747,27 @@ function generateMeetingAgenda(meetingType, reports, handoffs, decisions, blocke
 // ===== 主要樣式常數(日系商業風 v3) =====
 // 設計理念:米白底 + 鼠灰主色 + 朱紅強調 + 抹茶綠/古銅金/赤茶系統色
 // 參考:無印良品 × 三井住友銀行 × Notion 日文版的精品商業感
+// MUFG 風格配色：純白底、紅黑主軸、銳利克制
 const C = {
-  bg: "#F8F6F0",            // 主背景:更乾淨的米白
+  bg: "#F5F5F5",             // 主背景:極淺灰(MUFG 風)
   surface: "#FFFFFF",        // 卡片底
-  border: "#D8D5CC",         // 邊框:更柔的米色
-  borderLight: "#E8E5DC",
-  text: "#2C2826",           // 主文字:濃褐(取代純黑)
-  textMid: "#6E6862",
-  textLight: "#A09B92",
-  accent: "#3D4A5C",         // 主色:石板灰(取代企業深藍)
-  accentLight: "#E5E8EE",
-  highlight: "#B85450",      // 強調色:朱紅(日本傳統紅,點睛用)
-  highlightLight: "#F5E5E3",
-  success: "#5A7A5C",        // 抹茶綠
-  successLight: "#E8EFE5",
-  warn: "#A87432",           // 古銅金
-  warnLight: "#F4EDD8",
-  danger: "#8C3A3A",         // 赤茶
-  dangerLight: "#F2E2DD",
-  purple: "#6B5C8A",         // 桔梗紫
-  purpleLight: "#EDE9F2",
+  border: "#D6D6D6",         // 邊框:中性灰
+  borderLight: "#EAEAEA",
+  text: "#1A1A1A",           // 主文字:近黑
+  textMid: "#555555",
+  textLight: "#888888",
+  accent: "#C52A39",         // MUFG 主色:企業紅
+  accentLight: "#FBE7E9",
+  highlight: "#C52A39",      // 強調色與主色一致(統一視覺)
+  highlightLight: "#FBE7E9",
+  success: "#1F6E3A",        // 深綠
+  successLight: "#E3F0E7",
+  warn: "#B47800",           // 琥珀金
+  warnLight: "#FBF1D9",
+  danger: "#A41E22",         // 深紅
+  dangerLight: "#F8DCDE",
+  purple: "#003B71",         // 深企業藍(取代紫,搭配紅黑更專業)
+  purpleLight: "#E1E9F2",
 };
 
 // 風險等級對應顏色
@@ -2705,16 +2781,16 @@ const riskLevelColor = (level) => {
   return map[level] || map.normal;
 };
 
-// ===== 共用元件 =====
+// ===== 共用元件 (MUFG 風格：銳利、扁平、克制) =====
 const Pill = ({ children, tone = "neutral", size = "sm" }) => {
   const tones = {
-    neutral: { bg: "#EFEBE2", color: "#6E6862" },
-    blue: { bg: C.accentLight, color: "#2A3344" },
+    neutral: { bg: "#EAEAEA", color: "#555555" },
+    blue: { bg: C.purpleLight, color: C.purple },
     teal: { bg: C.successLight, color: C.success },
-    warn: { bg: C.warnLight, color: "#6B4A1F" },
+    warn: { bg: C.warnLight, color: "#7A4F00" },
     danger: { bg: C.dangerLight, color: C.danger },
-    purple: { bg: C.purpleLight, color: "#4A3F70" },
-    highlight: { bg: C.highlightLight, color: C.highlight },
+    purple: { bg: C.purpleLight, color: C.purple },
+    highlight: { bg: C.accentLight, color: C.accent },
   };
   const t = tones[tone] || tones.neutral;
   return (
@@ -2723,12 +2799,13 @@ const Pill = ({ children, tone = "neutral", size = "sm" }) => {
         display: "inline-flex",
         alignItems: "center",
         padding: size === "sm" ? "2px 8px" : "4px 10px",
-        borderRadius: 999,
+        borderRadius: 2,
         fontSize: size === "sm" ? 11 : 12,
         fontWeight: 500,
         background: t.bg,
         color: t.color,
         whiteSpace: "nowrap",
+        letterSpacing: "0.02em",
       }}
     >
       {children}
@@ -2790,10 +2867,11 @@ const Button = ({ children, variant = "secondary", onClick, disabled, icon: Icon
       disabled={disabled}
       style={{
         ...s,
-        padding: size === "sm" ? "5px 12px" : "7px 16px",
-        borderRadius: 6,
+        padding: size === "sm" ? "6px 14px" : "9px 20px",
+        borderRadius: 2,
         fontSize: size === "sm" ? 12 : 13,
-        fontWeight: 500,
+        fontWeight: 600,
+        letterSpacing: "0.03em",
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.5 : 1,
         display: "inline-flex",
@@ -2831,7 +2909,7 @@ const Modal = ({ open, onClose, title, subtitle, children, maxWidth = 560 }) => 
         onClick={(e) => e.stopPropagation()}
         style={{
           background: C.surface,
-          borderRadius: 12,
+          borderRadius: 2,
           width: "100%",
           maxWidth,
           maxHeight: "85vh",
@@ -2887,7 +2965,7 @@ const Card = ({ children, style, ...rest }) => (
     style={{
       background: C.surface,
       border: "1px solid " + C.border,
-      borderRadius: 10,
+      borderRadius: 2,
       ...style,
     }}
     {...rest}

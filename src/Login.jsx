@@ -2,18 +2,19 @@ import React, { useState } from "react";
 import { login } from "./firebase";
 import { LogIn, AlertCircle, Loader2 } from "lucide-react";
 
+// MUFG 風格配色
 const C = {
-  bg: "#F8F6F0",
+  bg: "#F5F5F5",
   surface: "#FFFFFF",
-  border: "#D8D5CC",
-  text: "#2C2826",
-  textMid: "#6E6862",
-  textLight: "#A09B92",
-  accent: "#3D4A5C",
-  accentLight: "#E5E8EE",
-  highlight: "#B85450",
-  danger: "#8C3A3A",
-  dangerLight: "#F2E2DD",
+  border: "#D6D6D6",
+  text: "#1A1A1A",
+  textMid: "#555555",
+  textLight: "#888888",
+  accent: "#C52A39",
+  accentLight: "#FBE7E9",
+  highlight: "#C52A39",
+  danger: "#A41E22",
+  dangerLight: "#F8DCDE",
 };
 
 export default function Login() {
@@ -52,7 +53,7 @@ export default function Login() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "linear-gradient(160deg, #F7FBFF 0%, #EAF3FC 60%, #F4EFE6 100%)",
+        background: C.bg,
         padding: 20,
       }}
     >
@@ -61,10 +62,11 @@ export default function Login() {
           width: "100%",
           maxWidth: 420,
           background: C.surface,
-          borderRadius: 14,
+          borderRadius: 2,
           padding: "40px 36px",
-          boxShadow: "0 8px 40px rgba(31, 78, 121, 0.08), 0 1px 3px rgba(0,0,0,0.04)",
+          boxShadow: "0 2px 12px rgba(0,0,0,0.06)",
           border: "1px solid " + C.border,
+          borderTop: "4px solid " + C.accent,
         }}
       >
         {/* Logo + 標題 */}
@@ -73,7 +75,7 @@ export default function Login() {
             style={{
               width: 56,
               height: 56,
-              borderRadius: 14,
+              borderRadius: 2,
               background: C.accent,
               color: "white",
               display: "inline-flex",
@@ -82,7 +84,6 @@ export default function Login() {
               fontSize: 26,
               fontWeight: 700,
               marginBottom: 14,
-              boxShadow: "0 4px 12px " + C.accent + "40",
             }}
           >
             串
@@ -111,14 +112,14 @@ export default function Login() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@test.com"
+              placeholder="your.name@company.com"
               autoComplete="email"
               required
               style={{
                 width: "100%",
                 padding: "11px 14px",
                 border: "1px solid " + C.border,
-                borderRadius: 8,
+                borderRadius: 2,
                 fontSize: 14,
                 fontFamily: "inherit",
                 background: C.surface,
@@ -155,7 +156,7 @@ export default function Login() {
                 width: "100%",
                 padding: "11px 14px",
                 border: "1px solid " + C.border,
-                borderRadius: 8,
+                borderRadius: 2,
                 fontSize: 14,
                 fontFamily: "inherit",
                 background: C.surface,
@@ -175,7 +176,7 @@ export default function Login() {
                 padding: "10px 12px",
                 background: C.dangerLight,
                 border: "1px solid " + C.danger + "30",
-                borderRadius: 6,
+                borderRadius: 2,
                 fontSize: 12,
                 color: C.danger,
                 marginBottom: 16,
@@ -199,9 +200,10 @@ export default function Login() {
               background: loading || !email || !password ? C.textLight : C.accent,
               color: "white",
               border: "none",
-              borderRadius: 8,
+              borderRadius: 2,
               fontSize: 14,
               fontWeight: 600,
+              letterSpacing: "0.05em",
               cursor: loading || !email || !password ? "not-allowed" : "pointer",
               fontFamily: "inherit",
               display: "flex",
@@ -231,7 +233,7 @@ export default function Login() {
             marginTop: 22,
             padding: "12px 14px",
             background: C.bg,
-            borderRadius: 8,
+            borderRadius: 2,
             fontSize: 11,
             color: C.textMid,
             lineHeight: 1.7,
