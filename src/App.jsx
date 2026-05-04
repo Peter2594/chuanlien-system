@@ -88,6 +88,30 @@ function formatWeekLabel(weeksAgoOrDate = 0) {
 
 const CURRENT_WEEK_LABEL = formatWeekLabel(0);
 
+// 將任何週次字串轉成日期顯示
+// - "2026/05/04 – 05/10" → 直接回傳
+// - "第 42 週" 或 "2025 第 42 週" → 計算對應日期區間
+function displayWeek(w) {
+  if (!w) return "";
+  const s = String(w);
+  if (/\d{4}[/-]\d{1,2}[/-]\d{1,2}/.test(s)) return s;
+  const m = s.match(/(?:(\d{4})\s*)?第\s*(\d+)\s*週/);
+  if (m) {
+    const year = m[1] ? parseInt(m[1]) : NOW.getFullYear();
+    const wk = parseInt(m[2]);
+    const d = new Date(year, 0, 1);
+    const dayNum = d.getDay() || 7;
+    if (dayNum <= 4) d.setDate(d.getDate() - dayNum + 1);
+    else d.setDate(d.getDate() + 8 - dayNum);
+    d.setDate(d.getDate() + (wk - 1) * 7);
+    const end = new Date(d);
+    end.setDate(end.getDate() + 6);
+    const fmt = (x) => `${String(x.getMonth() + 1).padStart(2, "0")}/${String(x.getDate()).padStart(2, "0")}`;
+    return `${year}/${fmt(d)} – ${fmt(end)}`;
+  }
+  return s;
+}
+
 // 種子資料原本以「2025-10-17」為基準日期撰寫
 // 將所有 ISO 日期字串平移到今天，讓資料看起來像剛發生的
 const _SEED_BASE_DATE = new Date("2025-10-17T00:00:00");
@@ -3217,7 +3241,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
   const isManager = userProfile?.role === "manager";
   const isMember = userProfile?.role === "member" || (!isAdmin && !isManager);
   const latestWeekRaw = getLatestWeek(reports);
-  const latestWeek = getLatestWeekDisplay(reports);
+  const latestWeek = displayWeek(getLatestWeekDisplay(reports));
   const deptReports = reports.filter((r) => r.week === latestWeekRaw);
   const deptNames = activeDeptNames(departments);
   const unsigned = handoffs.filter((h) => h.status === "待簽收");
@@ -4203,7 +4227,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
         open={!!viewReport}
         onClose={() => setViewReport(null)}
         title={viewReport?.dept + " · 週報"}
-        subtitle={viewReport && `${viewReport.author} · ${viewReport.week} · 繳交於 ${viewReport.submittedAt}`}
+        subtitle={viewReport && `${viewReport.author} · ${displayWeek(viewReport.week)} · 繳交於 ${viewReport.submittedAt}`}
       >
         {viewReport && (
           <div>
@@ -6044,7 +6068,7 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
                                       marginBottom: 4, fontSize: 12,
                                       borderLeft: "3px solid " + C.accent,
                                     }}>
-                                      <div style={{ fontWeight: 600, marginBottom: 2 }}>{rp.week} · {rp.dept}</div>
+                                      <div style={{ fontWeight: 600, marginBottom: 2 }}>{displayWeek(rp.week)} · {rp.dept}</div>
                                       <div style={{ color: C.textMid, fontSize: 11, lineHeight: 1.6 }}>
                                         {(rp.cases || "").slice(0, 80)}{rp.cases?.length > 80 ? "..." : ""}
                                       </div>
@@ -7496,7 +7520,7 @@ function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES
                               background: C.purple,
                               opacity: 0.4 + (i / growth.weeklyMetrics.length) * 0.6,
                               borderRadius: "2px 2px 0 0",
-                            }} title={`${m.week}: 複雜度 ${m.complexityScore.toFixed(1)}`}/>
+                            }} title={`${displayWeek(m.week)}: 複雜度 ${m.complexityScore.toFixed(1)}`}/>
                             <div style={{ fontSize: 9, color: C.textLight, marginTop: 3 }}>
                               {m.week.replace("第 ", "W")}
                             </div>
@@ -9215,21 +9239,24 @@ export default function App() {
           fetchDocumentCollection("auditLogs", []),
           fetchDocumentCollection("history", SEED_HISTORY),
         ]);
-        const nextBlockers = b.length ? b : [...SEED_BLOCKERS, ...createLegacyBlockersFromReports(r)];
-        reportsSnapshotRef.current = r;
+        // 偵測舊格式 reports (week 是 "第 N 週" 而非日期)，整批換成最新 SEED
+        const hasOldWeekFormat = (r || []).some((x) => /^第\s*\d/.test(String(x.week || "")));
+        const finalReports = hasOldWeekFormat ? SEED_REPORTS : r;
+        const finalBlockers = hasOldWeekFormat ? SEED_BLOCKERS : (b.length ? b : [...SEED_BLOCKERS, ...createLegacyBlockersFromReports(finalReports)]);
+        reportsSnapshotRef.current = finalReports;
         handoffsSnapshotRef.current = h;
         decisionsSnapshotRef.current = d;
-        blockersSnapshotRef.current = nextBlockers;
+        blockersSnapshotRef.current = finalBlockers;
         customMeetingsSnapshotRef.current = cm;
         meetingHistorySnapshotRef.current = mh;
         employeesSnapshotRef.current = emp;
         departmentsSnapshotRef.current = deptRows;
         usersSnapshotRef.current = userRows;
         auditLogsSnapshotRef.current = logs;
-        setReports(r);
+        setReports(finalReports);
         setHandoffs(h);
         setDecisions(d);
-        setBlockers(nextBlockers);
+        setBlockers(finalBlockers);
         setEmployees(emp);
         setDepartments(deptRows);
         setUsers(userRows);
