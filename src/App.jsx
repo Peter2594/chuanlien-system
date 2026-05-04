@@ -3104,7 +3104,7 @@ function collectActionItems({ reports, handoffs, blockers, blockerHistory, decis
       icon: "📋",
       title: `慢性議題:${c.topic}`,
       description: `已連續 ${c.weeks} 週出現在跨部門共同議題`,
-      meta: `自 ${c.firstWeek || "—"} 起持續至今`,
+      meta: `自 ${displayWeek(c.firstWeek) || "—"} 起持續至今`,
       suggestion: "建議召開跨部門協調會,評估是否需專案處理",
     });
   });
@@ -5953,7 +5953,7 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
                   </div>
                 </div>
                 <div style={{ fontSize: 12, color: C.textMid, lineHeight: 1.7, marginBottom: 8 }}>
-                  {r.date} · {r.summary}
+                  {displayWeek(r.date)} · {r.summary}
                 </div>
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
                   {r.tags.map((t) => (
@@ -6140,7 +6140,7 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
         open={!!viewCase}
         onClose={() => setViewCase(null)}
         title={viewCase?.title}
-        subtitle={viewCase && `${viewCase.date} · 負責人:${viewCase.owner} · ${viewCase.outcome}`}
+        subtitle={viewCase && `${displayWeek(viewCase.date)} · 負責人:${viewCase.owner} · ${viewCase.outcome}`}
         maxWidth={640}
       >
         {viewCase && (
@@ -6600,7 +6600,7 @@ function BlockerAnalytics({ blockerHistory, blockers = [], reports = [], history
                         </div>
                       </div>
                       <div style={{ fontSize: 11, color: C.textMid, marginBottom: 6 }}>
-                        {r.date} · 負責：{r.owner}
+                        {displayWeek(r.date)} · 負責：{r.owner}
                       </div>
                       <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                         {(r.tags || []).map((t) => <Pill key={t} tone="purple">{t}</Pill>)}
@@ -9239,8 +9239,8 @@ export default function App() {
           fetchDocumentCollection("auditLogs", []),
           fetchDocumentCollection("history", SEED_HISTORY),
         ]);
-        // 偵測舊格式 reports (week 是 "第 N 週" 而非日期)，整批換成最新 SEED
-        const hasOldWeekFormat = (r || []).some((x) => /^第\s*\d/.test(String(x.week || "")));
+        // 偵測舊格式 reports (week 含「第 N 週」字樣)，整批換成最新 SEED
+        const hasOldWeekFormat = (r || []).some((x) => /第\s*\d+\s*週/.test(String(x.week || "")));
         const finalReports = hasOldWeekFormat ? SEED_REPORTS : r;
         const finalBlockers = hasOldWeekFormat ? SEED_BLOCKERS : (b.length ? b : [...SEED_BLOCKERS, ...createLegacyBlockersFromReports(finalReports)]);
         reportsSnapshotRef.current = finalReports;
@@ -9263,16 +9263,14 @@ export default function App() {
         setCustomMeetings(cm);
         setMeetingHistory(mh);
         setAuditLogs(logs);
-        // 強制同步：若雲端為舊格式（沒有任何 id 以 "bh" 開頭的記錄），
-        // 視為過期資料，用最新 SEED_HISTORY 取代並讓自動同步寫回 Firebase。
-        // 這保證歷史案件搜尋和卡點統計分析永遠是同一份 53 筆資料。
+        // 強制同步：偵測舊格式（缺 bh 前綴 / 含「第 N 週」字樣），整批換成最新 SEED
         const hasNewFormat = hist.some((h) => String(h.id || "").startsWith("bh"));
-        if (!hist.length || !hasNewFormat) {
+        const hasOldDateFormat = hist.some((h) => /第\s*\d+\s*週/.test(String(h.date || "")));
+        if (!hist.length || !hasNewFormat || hasOldDateFormat) {
           historySnapshotRef.current = SEED_HISTORY;
           setHistory(SEED_HISTORY);
         } else {
-          // 雲端有新格式 → 確保至少包含 SEED_HISTORY 全部 53 筆，
-          // 缺少的補回（保留使用者額外新增的案件）
+          // 雲端有新格式 → 確保至少包含 SEED_HISTORY 全部 53 筆
           const cloudIds = new Set(hist.map((h) => h.id));
           const missingSeed = SEED_HISTORY.filter((s) => !cloudIds.has(s.id));
           const nextHistory = missingSeed.length ? [...hist, ...missingSeed] : hist;
