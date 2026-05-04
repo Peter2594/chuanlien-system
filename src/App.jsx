@@ -799,9 +799,11 @@ function addDaysIso(dateString, days) {
   return d.toISOString();
 }
 
+// 歷史卡點原本以「第 42 週為當週」設計，weekNum 範圍 18-35
+// 換算邏輯：weeksAgo = 42 - weekNum (e.g. weekNum=18 表示 24 週前；weekNum=35 表示 7 週前)
+const _HIST_BASELINE_WEEK = 42;
 function makeHistoryBlocker(id, category, daysToResolve, title, dept, weekNum, caseSize = "M") {
-  // 以「今天往前 (CURRENT_WEEK_NUM - weekNum) 週」作為歷史卡點的時間點
-  const weeksAgo = Math.max(1, CURRENT_WEEK_NUM - weekNum + 1);
+  const weeksAgo = Math.max(1, _HIST_BASELINE_WEEK - weekNum);
   const createdAt = new Date(NOW);
   createdAt.setDate(createdAt.getDate() - weeksAgo * 7);
   const createdAtIso = createdAt.toISOString();
@@ -849,21 +851,20 @@ const SEED_HISTORY = SEED_BLOCKER_HISTORY.map((b) => {
   const cat = BLOCKER_CATEGORIES.find((c) => c.key === b.category) || BLOCKER_CATEGORIES[BLOCKER_CATEGORIES.length - 1];
   const speed = b.daysToResolve <= 3 ? "快速解決" : b.daysToResolve <= 7 ? "正常解決" : b.daysToResolve <= 14 ? "較慢解決" : "嚴重延誤";
   const insights = categoryInsights[b.category] || [];
-  // 把 weekNum 18-30 區間轉成現在的相對週次
-  const relWeek = b.createdAt
-    ? getISOWeek(new Date(b.createdAt))
-    : Math.max(1, CURRENT_WEEK_NUM - (30 - b.weekNum));
+  // 用「YYYY-Qx」季度格式呈現歷史時間，避免跨年週次混淆
+  const cd = b.createdAt ? new Date(b.createdAt) : NOW;
+  const dateLabel = `${cd.getFullYear()}-Q${Math.floor(cd.getMonth() / 3) + 1}`;
   return {
     id: b.id,
     title: b.title,
-    date: `第 ${relWeek} 週`,
+    date: dateLabel,
     tags: [b.category, b.dept, speed],
     summary: `${b.dept}處理的${b.category}類卡點，歷時 ${b.daysToResolve} 天完成解決。`,
     owner: b.dept,
     handoffs: b.crossDepts || 1,
     outcome: `已解決 · ${b.daysToResolve} 天`,
     detail: {
-      background: `本卡點屬於「${b.category}」類別，發生於第 ${relWeek} 週，由 ${b.dept} 主責處理。`,
+      background: `本卡點屬於「${b.category}」類別，發生於 ${dateLabel}，由 ${b.dept} 主責處理。`,
       process: `共歷時 ${b.daysToResolve} 天完成解決，期間涉及 ${b.crossDepts || 1} 次跨部門協作，案件規模：${b.caseSize || "M"}。`,
       valuation: `解決時間：${b.daysToResolve} 天 · 同類平均：${b.category === "法遵/合約" ? "7.8" : b.category === "資金/募資" ? "5.7" : b.category === "資料/補件" ? "6.4" : b.category === "跨部門/窗口" ? "4.6" : b.category === "決策/簽核" ? "9.2" : "5.0"} 天`,
       keyInsights: insights,
@@ -9887,44 +9888,45 @@ export default function App() {
         display: "flex",
       }}
     >
-      {/* 側邊欄 */}
+      {/* 側邊欄 - MUFG 風格 */}
       <aside
         style={{
-          width: 220,
+          width: 240,
           background: C.surface,
           borderRight: "1px solid " + C.border,
-          padding: "24px 12px",
           display: "flex",
           flexDirection: "column",
           flexShrink: 0,
         }}
       >
-        <div style={{ padding: "0 12px 20px", borderBottom: "1px solid " + C.borderLight, marginBottom: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+        {/* 頂部紅色品牌條 */}
+        <div style={{ height: 4, background: C.accent }} />
+
+        <div style={{ padding: "20px 18px 18px", borderBottom: "1px solid " + C.borderLight }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div
               style={{
-                width: 32,
-                height: 32,
-                borderRadius: 8,
+                width: 36,
+                height: 36,
                 background: C.accent,
                 color: "white",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 fontWeight: 700,
-                fontSize: 15,
+                fontSize: 17,
               }}
             >
               串
             </div>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>串連股份有限公司</div>
-              <div style={{ fontSize: 10, color: C.textLight }}>管理層決策輔助系統</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: C.text, letterSpacing: "0.02em" }}>串連股份有限公司</div>
+              <div style={{ fontSize: 10, color: C.textLight, marginTop: 2, letterSpacing: "0.05em" }}>MANAGEMENT SYSTEM</div>
             </div>
           </div>
         </div>
 
-        <nav style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
+        <nav style={{ display: "flex", flexDirection: "column", flex: 1, padding: "12px 0" }}>
           {tabs.map((t) => {
             const Icon = t.icon;
             const active = currentTab === t.id;
@@ -9935,18 +9937,25 @@ export default function App() {
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 10,
-                  padding: "9px 12px",
+                  gap: 12,
+                  padding: "11px 18px",
+                  paddingLeft: active ? 14 : 18,
                   background: active ? C.accentLight : "transparent",
                   color: active ? C.accent : C.textMid,
                   border: "none",
-                  borderRadius: 6,
+                  borderLeft: active ? "4px solid " + C.accent : "4px solid transparent",
                   fontSize: 13,
                   fontWeight: active ? 600 : 500,
                   cursor: "pointer",
                   textAlign: "left",
                   fontFamily: "inherit",
-                  transition: "all 0.15s",
+                  transition: "all 0.12s",
+                }}
+                onMouseEnter={(e) => {
+                  if (!active) e.currentTarget.style.background = C.bg;
+                }}
+                onMouseLeave={(e) => {
+                  if (!active) e.currentTarget.style.background = "transparent";
                 }}
               >
                 <Icon size={15} />
@@ -10081,7 +10090,34 @@ export default function App() {
       </aside>
 
       {/* 主內容 */}
-      <main style={{ flex: 1, overflow: "auto" }}>
+      <main style={{ flex: 1, overflow: "auto", background: C.bg }}>
+        {/* MUFG 風頂部橫條 */}
+        <div style={{
+          background: "white",
+          borderBottom: "1px solid " + C.border,
+          padding: "14px 28px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          position: "sticky",
+          top: 0,
+          zIndex: 10,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <div style={{ width: 3, height: 20, background: C.accent }} />
+            <div>
+              <div style={{ fontSize: 10, color: C.textLight, letterSpacing: "0.15em", fontWeight: 600 }}>
+                {(tabs.find((t) => t.id === currentTab)?.label || "DASHBOARD").toUpperCase()}
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginTop: 2 }}>
+                {tabs.find((t) => t.id === currentTab)?.label || "儀表板"}
+              </div>
+            </div>
+          </div>
+          <div style={{ fontSize: 11, color: C.textMid, letterSpacing: "0.05em" }}>
+            {NOW.getFullYear()}/{String(NOW.getMonth() + 1).padStart(2, "0")}/{String(NOW.getDate()).padStart(2, "0")} · {CURRENT_WEEK_LABEL}
+          </div>
+        </div>
         {currentTab === "dashboard" && <Dashboard
           reports={reports}
           handoffs={handoffs}
