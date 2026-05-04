@@ -1529,32 +1529,22 @@ function createLegacyBlockersFromReports(reports) {
 // 從 reports 動態找出最新的週次,讓系統不再寫死「第 42 週」
 // ============================================================
 function getLatestWeek(reports) {
-  if (!reports || reports.length === 0) return "第 42 週"; // fallback
-  const weeks = [...new Set(reports.map((r) => r.week))];
-  // 從週次名稱抽出數字,找最大
-  const withNum = weeks.map((w) => {
-    const m = (w || "").match(/\d+/);
-    return { week: w, num: m ? parseInt(m[0]) : 0 };
+  if (!reports || reports.length === 0) return CURRENT_WEEK_LABEL;
+  const weeks = [...new Set(reports.map((r) => r.week).filter(Boolean))];
+  if (weeks.length === 0) return CURRENT_WEEK_LABEL;
+  // 用第一個日期當排序鍵 (例: "2026/05/04 – 05/10" 取 2026/05/04)
+  const withDate = weeks.map((w) => {
+    const m = String(w).match(/(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
+    const sortKey = m ? +m[1] * 10000 + +m[2] * 100 + +m[3] : 0;
+    return { week: w, sortKey };
   });
-  withNum.sort((a, b) => b.num - a.num);
-  return withNum[0].week;
+  withDate.sort((a, b) => b.sortKey - a.sortKey);
+  return withDate[0].week;
 }
 
-// 取得最新週次的「附加日期區間」(例:第 42 週 → 第 42 週 (10/14 – 10/20))
+// 直接回傳日期區間字串本身
 function getLatestWeekDisplay(reports) {
-  const week = getLatestWeek(reports);
-  const numMatch = (week || "").match(/\d+/);
-  if (!numMatch) return week;
-  const num = parseInt(numMatch[0]);
-  // 假設第 1 週為 1 月第 1 週,計算對應日期區間(粗估)
-  // 為了 demo 顯示用,實際生產會接後端日期
-  const map = {
-    35: "8/26 – 9/1", 36: "9/2 – 9/8", 37: "9/9 – 9/15", 38: "9/16 – 9/22",
-    39: "9/23 – 9/29", 40: "9/30 – 10/6", 41: "10/7 – 10/13", 42: "10/14 – 10/20",
-    43: "10/21 – 10/27", 44: "10/28 – 11/3", 45: "11/4 – 11/10",
-  };
-  const range = map[num] || `第 ${num} 週區間`;
-  return `${week} (${range})`;
+  return getLatestWeek(reports);
 }
 
 // ============================================================
@@ -3090,7 +3080,7 @@ function collectActionItems({ reports, handoffs, blockers, blockerHistory, decis
       icon: "📋",
       title: `慢性議題:${c.topic}`,
       description: `已連續 ${c.weeks} 週出現在跨部門共同議題`,
-      meta: `自第 ${c.firstWeek} 週起持續至今`,
+      meta: `自 ${c.firstWeek || "—"} 起持續至今`,
       suggestion: "建議召開跨部門協調會,評估是否需專案處理",
     });
   });
@@ -6054,7 +6044,7 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
                                       marginBottom: 4, fontSize: 12,
                                       borderLeft: "3px solid " + C.accent,
                                     }}>
-                                      <div style={{ fontWeight: 600, marginBottom: 2 }}>第 {rp.week} 週 · {rp.dept}</div>
+                                      <div style={{ fontWeight: 600, marginBottom: 2 }}>{rp.week} · {rp.dept}</div>
                                       <div style={{ color: C.textMid, fontSize: 11, lineHeight: 1.6 }}>
                                         {(rp.cases || "").slice(0, 80)}{rp.cases?.length > 80 ? "..." : ""}
                                       </div>
@@ -9915,96 +9905,121 @@ export default function App() {
         flexDirection: "column",
       }}
     >
-      {/* ===== MUFG 風 上方導覽列 ===== */}
-      {/* 1. 頂部 Utility Bar - 灰色細條,放使用者 + 同步狀態 + 登出 */}
-      <div style={{
-        background: "#2A2A2A",
-        color: "rgba(255,255,255,0.8)",
-        padding: "6px 32px",
-        display: "flex",
-        justifyContent: "flex-end",
-        alignItems: "center",
-        gap: 18,
-        fontSize: 11,
-        letterSpacing: "0.05em",
-      }}>
-        <span style={{ color: "rgba(255,255,255,0.55)" }}>
-          {NOW.getFullYear()}/{String(NOW.getMonth() + 1).padStart(2, "0")}/{String(NOW.getDate()).padStart(2, "0")} ({["日", "一", "二", "三", "四", "五", "六"][NOW.getDay()]})
-        </span>
-        <span style={{ width: 1, height: 12, background: "rgba(255,255,255,0.2)" }} />
-        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{
-            display: "inline-block", width: 6, height: 6, borderRadius: "50%",
-            background: syncStatus === "error" ? C.danger : syncStatus === "syncing" ? C.warn : C.success,
-          }} />
-          {syncStatus === "syncing" ? "同步中" : syncStatus === "error" ? "同步失敗" : "已同步"}
-        </span>
-        <span style={{ width: 1, height: 12, background: "rgba(255,255,255,0.2)" }} />
-        <span>{userProfile?.displayName || authUser?.email}</span>
-        <span style={{
-          padding: "2px 8px",
-          background: userProfile?.role === "admin" ? C.accent : "rgba(255,255,255,0.15)",
-          fontSize: 10,
-          fontWeight: 600,
-          letterSpacing: "0.05em",
-        }}>
-          {ROLE_LABELS[userProfile?.role] || "—"}
-        </span>
-        <span style={{ width: 1, height: 12, background: "rgba(255,255,255,0.2)" }} />
-        <button
-          onClick={handleLogout}
-          style={{
-            background: "none", border: "none", color: "rgba(255,255,255,0.8)",
-            fontSize: 11, cursor: "pointer", fontFamily: "inherit",
-            display: "flex", alignItems: "center", gap: 4, padding: 0,
-          }}
-          onMouseEnter={(e) => e.currentTarget.style.color = "white"}
-          onMouseLeave={(e) => e.currentTarget.style.color = "rgba(255,255,255,0.8)"}
-        >
-          <LogOut size={11} /> 登出
-        </button>
-      </div>
+      {/* ===== 頂部紅色品牌條 (4px) ===== */}
+      <div style={{ height: 4, background: C.accent }} />
 
-      {/* 2. 主品牌區 - 白底,Logo + 公司名 */}
+      {/* ===== 主 Header：Logo + 公司名 + 使用者區 ===== */}
       <div style={{
         background: "white",
-        borderBottom: "1px solid " + C.borderLight,
-        padding: "16px 32px",
+        padding: "18px 36px",
         display: "flex",
         alignItems: "center",
-        gap: 18,
+        gap: 20,
+        borderBottom: "1px solid " + C.borderLight,
       }}>
         <div style={{
-          width: 42, height: 42,
+          width: 44, height: 44,
           background: C.accent,
           color: "white",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
           fontWeight: 700,
-          fontSize: 19,
+          fontSize: 20,
+          flexShrink: 0,
         }}>
           串
         </div>
-        <div>
-          <div style={{ fontSize: 17, fontWeight: 700, color: C.text, letterSpacing: "0.02em" }}>
+        <div style={{ flexShrink: 0 }}>
+          <div style={{ fontSize: 18, fontWeight: 700, color: C.text, letterSpacing: "0.01em", lineHeight: 1.2 }}>
             串連股份有限公司
           </div>
-          <div style={{ fontSize: 10, color: C.textLight, letterSpacing: "0.18em", marginTop: 2 }}>
-            MANAGEMENT DECISION SUPPORT SYSTEM
+          <div style={{ fontSize: 10, color: C.textLight, letterSpacing: "0.2em", marginTop: 3, fontWeight: 500 }}>
+            MANAGEMENT DECISION SUPPORT
           </div>
         </div>
-        <div style={{ marginLeft: "auto", fontSize: 11, color: C.textMid, letterSpacing: "0.05em" }}>
-          本週 · {CURRENT_WEEK_LABEL}
+
+        {/* 右側：日期 + 同步狀態 + 使用者 + 登出 */}
+        <div style={{
+          marginLeft: "auto",
+          display: "flex",
+          alignItems: "center",
+          gap: 16,
+          fontSize: 12,
+          color: C.textMid,
+        }}>
+          <span style={{ letterSpacing: "0.02em" }}>
+            {NOW.getFullYear()}/{String(NOW.getMonth() + 1).padStart(2, "0")}/{String(NOW.getDate()).padStart(2, "0")}
+            <span style={{ marginLeft: 4, color: C.textLight }}>
+              ({["日", "一", "二", "三", "四", "五", "六"][NOW.getDay()]})
+            </span>
+          </span>
+          <span style={{ width: 1, height: 16, background: C.borderLight }} />
+          <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11 }}>
+            <span style={{
+              display: "inline-block", width: 7, height: 7, borderRadius: "50%",
+              background: syncStatus === "error" ? C.danger : syncStatus === "syncing" ? C.warn : C.success,
+            }} />
+            {syncStatus === "syncing" ? "同步中" : syncStatus === "error" ? "同步失敗" : "已同步"}
+          </span>
+          <span style={{ width: 1, height: 16, background: C.borderLight }} />
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{
+              width: 30, height: 30,
+              background: C.accent,
+              color: "white",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontSize: 12, fontWeight: 700,
+            }}>
+              {(authUser?.email || "?")[0].toUpperCase()}
+            </div>
+            <div style={{ lineHeight: 1.3 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
+                {userProfile?.displayName || (authUser?.email || "").split("@")[0]}
+              </div>
+              <div style={{ fontSize: 10, color: C.textLight, letterSpacing: "0.05em" }}>
+                {ROLE_LABELS[userProfile?.role] || "—"} · {userProfile?.dept || "—"}
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={handleLogout}
+            style={{
+              background: "white",
+              border: "1px solid " + C.border,
+              color: C.textMid,
+              padding: "7px 14px",
+              fontSize: 11,
+              cursor: "pointer",
+              fontFamily: "inherit",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              letterSpacing: "0.05em",
+              fontWeight: 500,
+              transition: "all 0.12s",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = C.accent;
+              e.currentTarget.style.color = C.accent;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = C.border;
+              e.currentTarget.style.color = C.textMid;
+            }}
+          >
+            <LogOut size={12} /> 登出
+          </button>
         </div>
       </div>
 
-      {/* 3. 紅色橫向導覽 - MUFG 招牌 */}
+      {/* ===== 白底導覽列：靠下紅色底線標示作用中 (MUFG 風) ===== */}
       <nav style={{
-        background: C.accent,
+        background: "white",
         display: "flex",
         padding: "0 24px",
-        boxShadow: "0 2px 4px rgba(0,0,0,0.08)",
+        borderBottom: "1px solid " + C.border,
+        boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
       }}>
         {tabs.map((t) => {
           const Icon = t.icon;
@@ -10017,24 +10032,24 @@ export default function App() {
                 display: "flex",
                 alignItems: "center",
                 gap: 7,
-                padding: "13px 18px",
-                background: active ? "rgba(0,0,0,0.18)" : "transparent",
-                color: "white",
+                padding: "14px 18px",
+                background: "transparent",
+                color: active ? C.accent : C.textMid,
                 border: "none",
-                borderBottom: active ? "3px solid white" : "3px solid transparent",
+                borderBottom: active ? "3px solid " + C.accent : "3px solid transparent",
                 fontSize: 13,
                 fontWeight: active ? 700 : 500,
                 cursor: "pointer",
                 fontFamily: "inherit",
                 letterSpacing: "0.04em",
                 transition: "all 0.12s",
-                position: "relative",
+                marginBottom: -1,
               }}
               onMouseEnter={(e) => {
-                if (!active) e.currentTarget.style.background = "rgba(0,0,0,0.1)";
+                if (!active) e.currentTarget.style.color = C.text;
               }}
               onMouseLeave={(e) => {
-                if (!active) e.currentTarget.style.background = "transparent";
+                if (!active) e.currentTarget.style.color = C.textMid;
               }}
             >
               <Icon size={14} />
@@ -10266,26 +10281,6 @@ export default function App() {
 
       {/* 主內容 */}
       <main style={{ flex: 1, overflow: "auto", background: C.bg }}>
-        {/* 麵包屑 / 頁面標題列 */}
-        <div style={{
-          background: "white",
-          borderBottom: "1px solid " + C.borderLight,
-          padding: "16px 32px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.textMid }}>
-            <span>首頁</span>
-            <span style={{ color: C.textLight }}>/</span>
-            <span style={{ color: C.text, fontWeight: 600 }}>
-              {tabs.find((t) => t.id === currentTab)?.label || "儀表板"}
-            </span>
-          </div>
-          <div style={{ fontSize: 11, color: C.textLight, letterSpacing: "0.05em" }}>
-            {CURRENT_WEEK_LABEL}
-          </div>
-        </div>
         {currentTab === "dashboard" && <Dashboard
           reports={reports}
           handoffs={handoffs}
