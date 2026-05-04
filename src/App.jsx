@@ -64,7 +64,14 @@ function getWeekDateRange(weeksAgo = 0) {
 }
 
 const CURRENT_WEEK_NUM = getISOWeek(NOW);
-const CURRENT_WEEK_LABEL = `第 ${CURRENT_WEEK_NUM} 週`;
+const CURRENT_YEAR = NOW.getFullYear();
+const CURRENT_WEEK_LABEL = `${CURRENT_YEAR} 第 ${CURRENT_WEEK_NUM} 週`;
+
+// 統一格式化任意日期為「YYYY 第 N 週」
+function formatWeekLabel(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  return `${d.getFullYear()} 第 ${getISOWeek(d)} 週`;
+}
 
 // 種子資料原本以「2025-10-17」為基準日期撰寫
 // 將所有 ISO 日期字串平移到今天，讓資料看起來像剛發生的
@@ -104,10 +111,13 @@ const SEED_REPORTS_HISTORICAL = (() => {
   // 動態產生過去 7 週(week-7 ~ week-1)
   const weeks = [];
   for (let i = 7; i >= 1; i--) {
-    const wk = CURRENT_WEEK_NUM - i;
+    const target = new Date(NOW);
+    target.setDate(target.getDate() - i * 7);
+    const wkYear = target.getFullYear();
+    const wkNum = getISOWeek(target);
     weeks.push({
-      wk,
-      label: `第 ${wk} 週`,
+      wk: wkNum,
+      label: `${wkYear} 第 ${wkNum} 週`,
       dateRange: getWeekDateRange(i),
     });
   }
@@ -851,9 +861,9 @@ const SEED_HISTORY = SEED_BLOCKER_HISTORY.map((b) => {
   const cat = BLOCKER_CATEGORIES.find((c) => c.key === b.category) || BLOCKER_CATEGORIES[BLOCKER_CATEGORIES.length - 1];
   const speed = b.daysToResolve <= 3 ? "快速解決" : b.daysToResolve <= 7 ? "正常解決" : b.daysToResolve <= 14 ? "較慢解決" : "嚴重延誤";
   const insights = categoryInsights[b.category] || [];
-  // 用「YYYY-Qx」季度格式呈現歷史時間，避免跨年週次混淆
+  // 用「YYYY 第 N 週」格式呈現歷史時間
   const cd = b.createdAt ? new Date(b.createdAt) : NOW;
-  const dateLabel = `${cd.getFullYear()}-Q${Math.floor(cd.getMonth() / 3) + 1}`;
+  const dateLabel = formatWeekLabel(cd);
   return {
     id: b.id,
     title: b.title,
@@ -2975,29 +2985,31 @@ const Card = ({ children, style, ...rest }) => (
   </div>
 );
 
-const SectionTitle = ({ children, color = C.purple, hint }) => (
+const SectionTitle = ({ children, color = C.accent, hint }) => (
   <div
     style={{
       display: "flex",
       alignItems: "center",
-      gap: 8,
-      fontSize: 13,
-      fontWeight: 600,
-      marginBottom: 10,
+      gap: 10,
+      fontSize: 14,
+      fontWeight: 700,
+      marginBottom: 14,
       color: C.text,
+      paddingBottom: 8,
+      borderBottom: "1px solid " + C.borderLight,
     }}
   >
     <span
       style={{
-        width: 3,
-        height: 14,
+        width: 4,
+        height: 16,
         background: color,
-        borderRadius: 2,
+        borderRadius: 0,
       }}
     />
     {children}
     {hint && (
-      <span style={{ fontSize: 11, color: C.textLight, fontWeight: 400 }}>
+      <span style={{ fontSize: 11, color: C.textLight, fontWeight: 400, marginLeft: "auto" }}>
         {hint}
       </span>
     )}
@@ -9888,45 +9900,56 @@ export default function App() {
         display: "flex",
       }}
     >
-      {/* 側邊欄 - MUFG 風格 */}
+      {/* 側邊欄 - MUFG 銀行深色版 */}
       <aside
         style={{
           width: 240,
-          background: C.surface,
-          borderRight: "1px solid " + C.border,
+          background: "#1A1A1A",
+          color: "white",
           display: "flex",
           flexDirection: "column",
           flexShrink: 0,
         }}
       >
-        {/* 頂部紅色品牌條 */}
-        <div style={{ height: 4, background: C.accent }} />
-
-        <div style={{ padding: "20px 18px 18px", borderBottom: "1px solid " + C.borderLight }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        {/* 品牌區 */}
+        <div style={{ background: C.accent, padding: "20px 22px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div
               style={{
-                width: 36,
-                height: 36,
-                background: C.accent,
-                color: "white",
+                width: 38,
+                height: 38,
+                background: "white",
+                color: C.accent,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 fontWeight: 700,
-                fontSize: 17,
+                fontSize: 18,
               }}
             >
               串
             </div>
             <div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: C.text, letterSpacing: "0.02em" }}>串連股份有限公司</div>
-              <div style={{ fontSize: 10, color: C.textLight, marginTop: 2, letterSpacing: "0.05em" }}>MANAGEMENT SYSTEM</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "white", letterSpacing: "0.02em" }}>串連股份有限公司</div>
+              <div style={{ fontSize: 10, color: "rgba(255,255,255,0.75)", marginTop: 3, letterSpacing: "0.12em" }}>
+                MANAGEMENT SYSTEM
+              </div>
             </div>
           </div>
         </div>
 
-        <nav style={{ display: "flex", flexDirection: "column", flex: 1, padding: "12px 0" }}>
+        {/* 導覽分組標題 */}
+        <div style={{
+          padding: "16px 22px 6px",
+          fontSize: 9,
+          color: "rgba(255,255,255,0.4)",
+          letterSpacing: "0.2em",
+          fontWeight: 600,
+        }}>
+          MENU
+        </div>
+
+        <nav style={{ display: "flex", flexDirection: "column", flex: 1, padding: "0 0 12px" }}>
           {tabs.map((t) => {
             const Icon = t.icon;
             const active = currentTab === t.id;
@@ -9938,24 +9961,30 @@ export default function App() {
                   display: "flex",
                   alignItems: "center",
                   gap: 12,
-                  padding: "11px 18px",
-                  paddingLeft: active ? 14 : 18,
-                  background: active ? C.accentLight : "transparent",
-                  color: active ? C.accent : C.textMid,
+                  padding: "11px 22px",
+                  background: active ? "rgba(197, 42, 57, 0.15)" : "transparent",
+                  color: active ? "white" : "rgba(255,255,255,0.7)",
                   border: "none",
-                  borderLeft: active ? "4px solid " + C.accent : "4px solid transparent",
+                  borderLeft: active ? "3px solid " + C.accent : "3px solid transparent",
                   fontSize: 13,
-                  fontWeight: active ? 600 : 500,
+                  fontWeight: active ? 600 : 400,
                   cursor: "pointer",
                   textAlign: "left",
                   fontFamily: "inherit",
                   transition: "all 0.12s",
+                  letterSpacing: "0.02em",
                 }}
                 onMouseEnter={(e) => {
-                  if (!active) e.currentTarget.style.background = C.bg;
+                  if (!active) {
+                    e.currentTarget.style.background = "rgba(255,255,255,0.05)";
+                    e.currentTarget.style.color = "white";
+                  }
                 }}
                 onMouseLeave={(e) => {
-                  if (!active) e.currentTarget.style.background = "transparent";
+                  if (!active) {
+                    e.currentTarget.style.background = "transparent";
+                    e.currentTarget.style.color = "rgba(255,255,255,0.7)";
+                  }
                 }}
               >
                 <Icon size={15} />
@@ -9965,8 +9994,8 @@ export default function App() {
           })}
         </nav>
 
-        {/* 使用者資訊區塊 */}
-        <div style={{ padding: "12px", borderTop: "1px solid " + C.borderLight, marginTop: 12 }}>
+        {/* 使用者資訊區塊 - 深色版 */}
+        <div style={{ padding: "14px 18px", borderTop: "1px solid rgba(255,255,255,0.08)" }}>
           <SyncStatusPanel
             syncStatus={syncStatus}
             syncConflicts={syncConflicts}
@@ -9976,23 +10005,22 @@ export default function App() {
 
           {/* 使用者卡片 */}
           <div style={{
-            padding: "10px 10px",
-            background: C.bg,
-            borderRadius: 6,
+            padding: "12px",
+            background: "rgba(255,255,255,0.04)",
+            border: "1px solid rgba(255,255,255,0.08)",
             marginBottom: 8,
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
               <div style={{
-                width: 28,
-                height: 28,
-                borderRadius: "50%",
+                width: 30,
+                height: 30,
                 background: C.accent,
                 color: "white",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
                 fontSize: 12,
-                fontWeight: 600,
+                fontWeight: 700,
                 flexShrink: 0,
               }}>
                 {(authUser?.email || "?")[0].toUpperCase()}
@@ -10000,8 +10028,8 @@ export default function App() {
               <div style={{ overflow: "hidden", flex: 1 }}>
                 <div style={{
                   fontSize: 12,
-                  fontWeight: 500,
-                  color: C.text,
+                  fontWeight: 600,
+                  color: "white",
                   whiteSpace: "nowrap",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
@@ -10010,27 +10038,25 @@ export default function App() {
                 </div>
                 <div style={{
                   fontSize: 10,
-                  color: C.textLight,
+                  color: "rgba(255,255,255,0.5)",
                   whiteSpace: "nowrap",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
+                  marginTop: 1,
                 }}>
                   {userProfile?.dept || "—"}
                 </div>
               </div>
             </div>
-            <div style={{ display: "flex", justifyContent: "center", marginBottom: 8 }}>
+            <div style={{ display: "flex", justifyContent: "center", marginBottom: 10 }}>
               <span style={{
-                padding: "2px 10px",
-                borderRadius: 999,
+                padding: "3px 12px",
                 fontSize: 10,
                 fontWeight: 600,
-                background: userProfile?.role === "admin"
-                  ? C.accent
-                  : userProfile?.role === "manager"
-                  ? C.purple
-                  : C.textMid,
+                letterSpacing: "0.05em",
+                background: userProfile?.role === "admin" ? C.accent : "rgba(255,255,255,0.1)",
                 color: "white",
+                border: userProfile?.role === "admin" ? "none" : "1px solid rgba(255,255,255,0.2)",
               }}>
                 {ROLE_LABELS[userProfile?.role] || "—"}
               </span>
@@ -10039,32 +10065,32 @@ export default function App() {
               onClick={handleLogout}
               style={{
                 width: "100%",
-                padding: "6px 10px",
-                background: C.surface,
-                border: "1px solid " + C.border,
-                borderRadius: 5,
+                padding: "7px 10px",
+                background: "transparent",
+                border: "1px solid rgba(255,255,255,0.15)",
                 fontSize: 11,
-                color: C.textMid,
+                color: "rgba(255,255,255,0.7)",
                 cursor: "pointer",
                 fontFamily: "inherit",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: 5,
+                gap: 6,
                 transition: "all 0.15s",
+                letterSpacing: "0.05em",
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = C.dangerLight;
-                e.currentTarget.style.color = C.danger;
-                e.currentTarget.style.borderColor = C.danger + "40";
+                e.currentTarget.style.background = C.accent;
+                e.currentTarget.style.color = "white";
+                e.currentTarget.style.borderColor = C.accent;
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.background = C.surface;
-                e.currentTarget.style.color = C.textMid;
-                e.currentTarget.style.borderColor = C.border;
+                e.currentTarget.style.background = "transparent";
+                e.currentTarget.style.color = "rgba(255,255,255,0.7)";
+                e.currentTarget.style.borderColor = "rgba(255,255,255,0.15)";
               }}
             >
-              <LogOut size={11} />
+              <LogOut size={12} />
               登出
             </button>
           </div>
@@ -10073,17 +10099,20 @@ export default function App() {
             onClick={resetDemo}
             style={{
               fontSize: 11,
-              color: C.textLight,
+              color: "rgba(255,255,255,0.4)",
               background: "none",
               border: "none",
               cursor: "pointer",
               fontFamily: "inherit",
               padding: "4px 0",
+              letterSpacing: "0.05em",
             }}
+            onMouseEnter={(e) => e.currentTarget.style.color = "rgba(255,255,255,0.8)"}
+            onMouseLeave={(e) => e.currentTarget.style.color = "rgba(255,255,255,0.4)"}
           >
             重置範例資料
           </button>
-          <div style={{ fontSize: 10, color: C.textLight, marginTop: 4 }}>
+          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginTop: 6, letterSpacing: "0.05em" }}>
             資管導論 第 13 組
           </div>
         </div>
