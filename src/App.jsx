@@ -65,13 +65,28 @@ function getWeekDateRange(weeksAgo = 0) {
 
 const CURRENT_WEEK_NUM = getISOWeek(NOW);
 const CURRENT_YEAR = NOW.getFullYear();
-const CURRENT_WEEK_LABEL = `${CURRENT_YEAR} 第 ${CURRENT_WEEK_NUM} 週`;
 
-// 統一格式化任意日期為「YYYY 第 N 週」
-function formatWeekLabel(date) {
-  const d = date instanceof Date ? date : new Date(date);
-  return `${d.getFullYear()} 第 ${getISOWeek(d)} 週`;
+// 取得某週起訖日期(週一-週日)的標籤，格式如 "2026/05/04 – 05/10"
+function formatWeekLabel(weeksAgoOrDate = 0) {
+  const target = typeof weeksAgoOrDate === "number"
+    ? (() => {
+        const d = new Date(NOW);
+        d.setDate(d.getDate() - weeksAgoOrDate * 7);
+        return d;
+      })()
+    : (weeksAgoOrDate instanceof Date ? new Date(weeksAgoOrDate) : new Date(weeksAgoOrDate));
+  const day = target.getDay();
+  const daysToMon = day === 0 ? 6 : day - 1;
+  target.setDate(target.getDate() - daysToMon);
+  const start = new Date(target);
+  const end = new Date(target);
+  end.setDate(end.getDate() + 6);
+  const yy = start.getFullYear();
+  const fmtMD = (d) => `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
+  return `${yy}/${fmtMD(start)} – ${fmtMD(end)}`;
 }
+
+const CURRENT_WEEK_LABEL = formatWeekLabel(0);
 
 // 種子資料原本以「2025-10-17」為基準日期撰寫
 // 將所有 ISO 日期字串平移到今天，讓資料看起來像剛發生的
@@ -108,16 +123,15 @@ function shiftAllDates(obj) {
 // 過去週報採用較簡潔但連貫的內容,展現公司持續運作的真實感
 const SEED_REPORTS_HISTORICAL = (() => {
   const data = [];
-  // 動態產生過去 7 週(week-7 ~ week-1)
+  // 動態產生過去 7 週(week-7 ~ week-1)，全部用日期格式
   const weeks = [];
   for (let i = 7; i >= 1; i--) {
     const target = new Date(NOW);
     target.setDate(target.getDate() - i * 7);
-    const wkYear = target.getFullYear();
     const wkNum = getISOWeek(target);
     weeks.push({
       wk: wkNum,
-      label: `${wkYear} 第 ${wkNum} 週`,
+      label: formatWeekLabel(i),
       dateRange: getWeekDateRange(i),
     });
   }
@@ -861,9 +875,9 @@ const SEED_HISTORY = SEED_BLOCKER_HISTORY.map((b) => {
   const cat = BLOCKER_CATEGORIES.find((c) => c.key === b.category) || BLOCKER_CATEGORIES[BLOCKER_CATEGORIES.length - 1];
   const speed = b.daysToResolve <= 3 ? "快速解決" : b.daysToResolve <= 7 ? "正常解決" : b.daysToResolve <= 14 ? "較慢解決" : "嚴重延誤";
   const insights = categoryInsights[b.category] || [];
-  // 用「YYYY 第 N 週」格式呈現歷史時間
+  // 用日期呈現歷史時間 (YYYY/MM/DD)
   const cd = b.createdAt ? new Date(b.createdAt) : NOW;
-  const dateLabel = formatWeekLabel(cd);
+  const dateLabel = `${cd.getFullYear()}/${String(cd.getMonth() + 1).padStart(2, "0")}/${String(cd.getDate()).padStart(2, "0")}`;
   return {
     id: b.id,
     title: b.title,
@@ -9898,9 +9912,140 @@ export default function App() {
         color: C.text,
         minHeight: "100vh",
         display: "flex",
+        flexDirection: "column",
       }}
     >
-      {/* 側邊欄 - MUFG 銀行深色版 */}
+      {/* ===== MUFG 風 上方導覽列 ===== */}
+      {/* 1. 頂部 Utility Bar - 灰色細條,放使用者 + 同步狀態 + 登出 */}
+      <div style={{
+        background: "#2A2A2A",
+        color: "rgba(255,255,255,0.8)",
+        padding: "6px 32px",
+        display: "flex",
+        justifyContent: "flex-end",
+        alignItems: "center",
+        gap: 18,
+        fontSize: 11,
+        letterSpacing: "0.05em",
+      }}>
+        <span style={{ color: "rgba(255,255,255,0.55)" }}>
+          {NOW.getFullYear()}/{String(NOW.getMonth() + 1).padStart(2, "0")}/{String(NOW.getDate()).padStart(2, "0")} ({["日", "一", "二", "三", "四", "五", "六"][NOW.getDay()]})
+        </span>
+        <span style={{ width: 1, height: 12, background: "rgba(255,255,255,0.2)" }} />
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{
+            display: "inline-block", width: 6, height: 6, borderRadius: "50%",
+            background: syncStatus === "error" ? C.danger : syncStatus === "syncing" ? C.warn : C.success,
+          }} />
+          {syncStatus === "syncing" ? "同步中" : syncStatus === "error" ? "同步失敗" : "已同步"}
+        </span>
+        <span style={{ width: 1, height: 12, background: "rgba(255,255,255,0.2)" }} />
+        <span>{userProfile?.displayName || authUser?.email}</span>
+        <span style={{
+          padding: "2px 8px",
+          background: userProfile?.role === "admin" ? C.accent : "rgba(255,255,255,0.15)",
+          fontSize: 10,
+          fontWeight: 600,
+          letterSpacing: "0.05em",
+        }}>
+          {ROLE_LABELS[userProfile?.role] || "—"}
+        </span>
+        <span style={{ width: 1, height: 12, background: "rgba(255,255,255,0.2)" }} />
+        <button
+          onClick={handleLogout}
+          style={{
+            background: "none", border: "none", color: "rgba(255,255,255,0.8)",
+            fontSize: 11, cursor: "pointer", fontFamily: "inherit",
+            display: "flex", alignItems: "center", gap: 4, padding: 0,
+          }}
+          onMouseEnter={(e) => e.currentTarget.style.color = "white"}
+          onMouseLeave={(e) => e.currentTarget.style.color = "rgba(255,255,255,0.8)"}
+        >
+          <LogOut size={11} /> 登出
+        </button>
+      </div>
+
+      {/* 2. 主品牌區 - 白底,Logo + 公司名 */}
+      <div style={{
+        background: "white",
+        borderBottom: "1px solid " + C.borderLight,
+        padding: "16px 32px",
+        display: "flex",
+        alignItems: "center",
+        gap: 18,
+      }}>
+        <div style={{
+          width: 42, height: 42,
+          background: C.accent,
+          color: "white",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontWeight: 700,
+          fontSize: 19,
+        }}>
+          串
+        </div>
+        <div>
+          <div style={{ fontSize: 17, fontWeight: 700, color: C.text, letterSpacing: "0.02em" }}>
+            串連股份有限公司
+          </div>
+          <div style={{ fontSize: 10, color: C.textLight, letterSpacing: "0.18em", marginTop: 2 }}>
+            MANAGEMENT DECISION SUPPORT SYSTEM
+          </div>
+        </div>
+        <div style={{ marginLeft: "auto", fontSize: 11, color: C.textMid, letterSpacing: "0.05em" }}>
+          本週 · {CURRENT_WEEK_LABEL}
+        </div>
+      </div>
+
+      {/* 3. 紅色橫向導覽 - MUFG 招牌 */}
+      <nav style={{
+        background: C.accent,
+        display: "flex",
+        padding: "0 24px",
+        boxShadow: "0 2px 4px rgba(0,0,0,0.08)",
+      }}>
+        {tabs.map((t) => {
+          const Icon = t.icon;
+          const active = currentTab === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => navigateTo(t.id)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 7,
+                padding: "13px 18px",
+                background: active ? "rgba(0,0,0,0.18)" : "transparent",
+                color: "white",
+                border: "none",
+                borderBottom: active ? "3px solid white" : "3px solid transparent",
+                fontSize: 13,
+                fontWeight: active ? 700 : 500,
+                cursor: "pointer",
+                fontFamily: "inherit",
+                letterSpacing: "0.04em",
+                transition: "all 0.12s",
+                position: "relative",
+              }}
+              onMouseEnter={(e) => {
+                if (!active) e.currentTarget.style.background = "rgba(0,0,0,0.1)";
+              }}
+              onMouseLeave={(e) => {
+                if (!active) e.currentTarget.style.background = "transparent";
+              }}
+            >
+              <Icon size={14} />
+              {t.label}
+            </button>
+          );
+        })}
+      </nav>
+
+      {/* 隱藏舊 sidebar (保留邏輯參考但不渲染) */}
+      {false && (
       <aside
         style={{
           width: 240,
@@ -10117,34 +10262,28 @@ export default function App() {
           </div>
         </div>
       </aside>
+      )}
 
       {/* 主內容 */}
       <main style={{ flex: 1, overflow: "auto", background: C.bg }}>
-        {/* MUFG 風頂部橫條 */}
+        {/* 麵包屑 / 頁面標題列 */}
         <div style={{
           background: "white",
-          borderBottom: "1px solid " + C.border,
-          padding: "14px 28px",
+          borderBottom: "1px solid " + C.borderLight,
+          padding: "16px 32px",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          position: "sticky",
-          top: 0,
-          zIndex: 10,
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <div style={{ width: 3, height: 20, background: C.accent }} />
-            <div>
-              <div style={{ fontSize: 10, color: C.textLight, letterSpacing: "0.15em", fontWeight: 600 }}>
-                {(tabs.find((t) => t.id === currentTab)?.label || "DASHBOARD").toUpperCase()}
-              </div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: C.text, marginTop: 2 }}>
-                {tabs.find((t) => t.id === currentTab)?.label || "儀表板"}
-              </div>
-            </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: C.textMid }}>
+            <span>首頁</span>
+            <span style={{ color: C.textLight }}>/</span>
+            <span style={{ color: C.text, fontWeight: 600 }}>
+              {tabs.find((t) => t.id === currentTab)?.label || "儀表板"}
+            </span>
           </div>
-          <div style={{ fontSize: 11, color: C.textMid, letterSpacing: "0.05em" }}>
-            {NOW.getFullYear()}/{String(NOW.getMonth() + 1).padStart(2, "0")}/{String(NOW.getDate()).padStart(2, "0")} · {CURRENT_WEEK_LABEL}
+          <div style={{ fontSize: 11, color: C.textLight, letterSpacing: "0.05em" }}>
+            {CURRENT_WEEK_LABEL}
           </div>
         </div>
         {currentTab === "dashboard" && <Dashboard
