@@ -2983,7 +2983,7 @@ const Modal = ({ open, onClose, title, subtitle, children, maxWidth = 560 }) => 
               padding: 4,
               display: "flex",
               alignItems: "center",
-              borderRadius: 4,
+              borderRadius: 2,
             }}
           >
             <X size={18} />
@@ -3010,6 +3010,43 @@ const Card = ({ children, style, ...rest }) => (
     {...rest}
   >
     {children}
+  </div>
+);
+
+// 統一頁面標題 (MUFG 風)
+const PageHeader = ({ tag, title, subtitle, action }) => (
+  <div className="page-header" style={{
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+    marginBottom: 22,
+    paddingBottom: 14,
+    borderBottom: "2px solid " + C.text,
+    gap: 16,
+    flexWrap: "wrap",
+  }}>
+    <div>
+      {tag && (
+        <div style={{
+          fontSize: 11,
+          color: C.accent,
+          letterSpacing: "0.2em",
+          fontWeight: 700,
+          marginBottom: 6,
+        }}>
+          {tag}
+        </div>
+      )}
+      <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: "0.02em", color: C.text }}>
+        {title}
+      </h1>
+      {subtitle && (
+        <div style={{ fontSize: 12, color: C.textMid, marginTop: 6, lineHeight: 1.6 }}>
+          {subtitle}
+        </div>
+      )}
+    </div>
+    {action && <div style={{ flexShrink: 0 }}>{action}</div>}
   </div>
 );
 
@@ -3337,30 +3374,20 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
 
   return (
     <div style={{ padding: "24px 28px" }}>
-      {/* 頂部標題 */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 24 }}>
-        <div>
-          <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>
-            {isAdmin ? "EXECUTIVE DASHBOARD" : isManager ? "MANAGER DASHBOARD" : "MY DASHBOARD"}
+      <PageHeader
+        tag={isAdmin ? "EXECUTIVE DASHBOARD" : isManager ? "MANAGER DASHBOARD" : "MY DASHBOARD"}
+        title={titleByRole}
+        subtitle={subtitleByRole}
+        action={
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {isAdmin && (
+              <Button variant="primary" icon={FileText} size="sm" onClick={() => setShowBriefing(true)}>
+                產出週會 Briefing
+              </Button>
+            )}
           </div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0", color: C.text }}>
-            {titleByRole}
-          </h1>
-          <div style={{ fontSize: 13, color: C.textMid, marginTop: 4 }}>
-            {subtitleByRole}
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          {isAdmin && (
-            <Button variant="primary" icon={FileText} size="sm" onClick={() => setShowBriefing(true)}>
-              產出週會 Briefing
-            </Button>
-          )}
-          <div style={{ fontSize: 11, color: C.textLight }}>
-            更新於週一 09:00
-          </div>
-        </div>
-      </div>
+        }
+      />
 
       {/* C2. 慶祝里程碑橫幅(管理層專屬) */}
       {isAdmin && milestones.length > 0 && (
@@ -3401,7 +3428,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                 style={{
                   background: "rgba(255, 255, 255, 0.7)",
                   padding: "10px 14px",
-                  borderRadius: 6,
+                  borderRadius: 2,
                   display: "flex",
                   alignItems: "flex-start",
                   gap: 10,
@@ -3477,7 +3504,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                     background: "white",
                     border: "1px solid " + color.border + "30",
                     borderLeft: "3px solid " + color.border,
-                    borderRadius: 8,
+                    borderRadius: 2,
                     padding: "12px 14px",
                     cursor: "pointer",
                     transition: "all 0.15s",
@@ -3512,7 +3539,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                         color: color.fg,
                         padding: "4px 8px",
                         background: color.bg,
-                        borderRadius: 4,
+                        borderRadius: 2,
                         display: "inline-block",
                       }}>
                         💡 {item.suggestion}
@@ -3582,7 +3609,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                   style={{
                     background: "white",
                     borderLeft: "3px solid " + sevColor.border,
-                    borderRadius: 6,
+                    borderRadius: 2,
                     padding: "12px 14px",
                     cursor: "pointer",
                     transition: "all 0.15s",
@@ -3615,7 +3642,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                         color: sevColor.fg,
                         padding: "5px 9px",
                         background: sevColor.bg,
-                        borderRadius: 4,
+                        borderRadius: 2,
                         display: "inline-block",
                       }}>
                         💡 {a.suggestion}
@@ -3700,7 +3727,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                     border: "1px solid rgba(216, 213, 204, 0.15)",
                     borderLeft: "3px solid " + riskColor,
                     padding: "12px 14px",
-                    borderRadius: 6,
+                    borderRadius: 2,
                   }}
                 >
                   <div style={{
@@ -3752,7 +3779,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                     background: "rgba(184, 84, 80, 0.12)",
                     border: "1px solid rgba(184, 84, 80, 0.3)",
                     padding: "8px 10px",
-                    borderRadius: 4,
+                    borderRadius: 2,
                     fontSize: 11,
                     color: "#F0E2DD",
                     lineHeight: 1.7,
@@ -3786,7 +3813,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
             marginTop: 12,
             padding: "8px 10px",
             background: "rgba(248, 246, 240, 0.04)",
-            borderRadius: 4,
+            borderRadius: 2,
             fontSize: 10,
             color: "#A09B92",
             lineHeight: 1.6,
@@ -3909,7 +3936,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                   alignItems: "center",
                   padding: "10px 14px",
                   background: C.purpleLight,
-                  borderRadius: 6,
+                  borderRadius: 2,
                   cursor: "pointer",
                   transition: "all 0.15s",
                 }}
@@ -3951,7 +3978,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                     style={{
                       padding: "10px 12px",
                       background: color.bg,
-                      borderRadius: 6,
+                      borderRadius: 2,
                       fontSize: 12,
                       color: color.fg,
                       cursor: "pointer",
@@ -4016,7 +4043,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                   style={{
                     padding: "8px 12px",
                     background: C.dangerLight,
-                    borderRadius: 6,
+                    borderRadius: 2,
                     fontSize: 12,
                     color: C.danger,
                     cursor: "pointer",
@@ -4055,7 +4082,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                       style={{
                         padding: "10px 12px",
                         background: color.bg,
-                        borderRadius: 6,
+                        borderRadius: 2,
                         fontSize: 12,
                         color: color.fg,
                         cursor: "pointer",
@@ -4097,7 +4124,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                       style={{
                         padding: "10px 12px",
                         background: color.bg,
-                        borderRadius: 6,
+                        borderRadius: 2,
                         fontSize: 12,
                         color: color.fg,
                         display: "flex",
@@ -4143,7 +4170,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                 style={{
                   padding: "10px 12px",
                   background: color.bg,
-                  borderRadius: 6,
+                  borderRadius: 2,
                   fontSize: 12,
                   color: color.fg,
                   cursor: "pointer",
@@ -4187,7 +4214,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                 style={{
                   padding: "12px 14px",
                   background: C.bg,
-                  borderRadius: 6,
+                  borderRadius: 2,
                   fontSize: 12,
                   cursor: clickable ? "pointer" : "default",
                   border: "1px solid transparent",
@@ -4244,7 +4271,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                 <div style={{
                   padding: "10px 12px",
                   background: C.bg,
-                  borderRadius: 6,
+                  borderRadius: 2,
                   fontSize: 13,
                   lineHeight: 1.7,
                   whiteSpace: "pre-wrap",
@@ -4284,7 +4311,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
             <div style={{
               padding: "12px 14px",
               background: C.purpleLight,
-              borderRadius: 6,
+              borderRadius: 2,
               fontSize: 13,
               color: "#3C3489",
               lineHeight: 1.7,
@@ -4340,7 +4367,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                             color: C.text,
                             padding: "6px 10px",
                             background: C.bg,
-                            borderRadius: 4,
+                            borderRadius: 2,
                             whiteSpace: "pre-wrap",
                           }}>
                             {highlightKeyword(m.text, viewTopic.kw)}
@@ -4393,7 +4420,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
               <div style={{
                 padding: "12px 14px",
                 background: C.bg,
-                borderRadius: 6,
+                borderRadius: 2,
                 fontSize: 13,
                 lineHeight: 1.7,
                 marginBottom: 18,
@@ -4414,7 +4441,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                   padding: "10px 14px",
                   background: a.categoryInfo.color + "15",
                   border: "1px solid " + a.categoryInfo.color + "40",
-                  borderRadius: 6,
+                  borderRadius: 2,
                   display: "flex",
                   justifyContent: "space-between",
                   alignItems: "center",
@@ -4445,7 +4472,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                   padding: 16,
                   background: color.bg,
                   border: "1px solid " + color.fg + "30",
-                  borderRadius: 8,
+                  borderRadius: 2,
                 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                     <div>
@@ -4488,7 +4515,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                       padding: "8px 10px",
                       background: s.highlight ? color.bg : C.bg,
                       border: s.highlight ? "1px solid " + color.fg + "30" : "1px solid " + C.borderLight,
-                      borderRadius: 6,
+                      borderRadius: 2,
                       textAlign: "center",
                     }}>
                       <div style={{ fontSize: 10, color: C.textMid, marginBottom: 2 }}>
@@ -4514,7 +4541,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                 <div style={{
                   padding: 16,
                   background: C.bg,
-                  borderRadius: 8,
+                  borderRadius: 2,
                   border: "1px solid " + C.borderLight,
                 }}>
                   <div style={{
@@ -4629,7 +4656,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
               <div style={{
                 padding: "12px 14px",
                 background: C.accentLight,
-                borderRadius: 6,
+                borderRadius: 2,
                 display: "flex",
                 gap: 10,
                 alignItems: "flex-start",
@@ -4689,7 +4716,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
             <div style={{
               padding: "10px 14px",
               background: C.bg,
-              borderRadius: 6,
+              borderRadius: 2,
               fontSize: 13,
               lineHeight: 1.7,
               marginBottom: 14,
@@ -4711,7 +4738,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                 <div key={f.label} style={{
                   padding: "10px 12px",
                   background: C.bg,
-                  borderRadius: 6,
+                  borderRadius: 2,
                 }}>
                   <div style={{ fontSize: 11, color: C.textLight, marginBottom: 3 }}>{f.label}</div>
                   <div style={{ fontSize: 13, fontWeight: 500 }}>
@@ -4729,7 +4756,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                 <div style={{
                   padding: "10px 12px",
                   background: C.accentLight,
-                  borderRadius: 6,
+                  borderRadius: 2,
                   fontSize: 13,
                   color: C.accent,
                   lineHeight: 1.7,
@@ -4743,7 +4770,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
               <div style={{
                 padding: 12,
                 background: C.dangerLight,
-                borderRadius: 6,
+                borderRadius: 2,
                 display: "flex",
                 gap: 10,
                 fontSize: 12,
@@ -4783,7 +4810,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                 padding: 14,
                 background: color.bg,
                 border: "1px solid " + color.fg + "30",
-                borderRadius: 8,
+                borderRadius: 2,
                 marginBottom: 16,
               }}>
                 <div style={{ fontSize: 13, color: color.fg, lineHeight: 1.7 }}>
@@ -4841,7 +4868,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
               <div style={{
                 padding: "10px 12px",
                 background: C.accentLight,
-                borderRadius: 6,
+                borderRadius: 2,
                 fontSize: 12,
                 color: C.accent,
                 lineHeight: 1.7,
@@ -4868,7 +4895,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
           <div style={{
             padding: "12px 14px",
             background: C.accentLight,
-            borderRadius: 6,
+            borderRadius: 2,
             fontSize: 12,
             color: C.accent,
             marginBottom: 14,
@@ -4886,7 +4913,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
             padding: 16,
             background: "#1A1815",
             color: "#E8E6DD",
-            borderRadius: 8,
+            borderRadius: 2,
             fontSize: 12,
             lineHeight: 1.8,
             fontFamily: "ui-monospace, 'SF Mono', Menlo, monospace",
@@ -5036,7 +5063,7 @@ function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userPro
     width: "100%",
     padding: "9px 12px",
     border: "1px solid " + C.border,
-    borderRadius: 6,
+    borderRadius: 2,
     fontSize: 13,
     fontFamily: "inherit",
     background: C.surface,
@@ -5055,15 +5082,11 @@ function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userPro
 
   return (
     <div style={{ padding: "24px 28px", maxWidth: 720 }}>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>
-          WEEKLY REPORT
-        </div>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>本週週報填寫</h1>
-        <div style={{ fontSize: 13, color: C.textMid, marginTop: 4 }}>
-          {getLatestWeekDisplay(reports)} · 請於週五下班前完成
-        </div>
-      </div>
+      <PageHeader
+        tag="WEEKLY REPORT"
+        title="本週週報填寫"
+        subtitle={`${displayWeek(getLatestWeekDisplay(reports))} · 請於週五下班前完成`}
+      />
 
       <Card style={{ padding: 20 }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
@@ -5111,7 +5134,7 @@ function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userPro
                 style={{
                   padding: 12,
                   border: "1px solid " + C.borderLight,
-                  borderRadius: 8,
+                  borderRadius: 2,
                   background: C.bg,
                 }}
               >
@@ -5161,7 +5184,7 @@ function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userPro
                     style={{
                       border: "1px solid " + C.border,
                       background: C.surface,
-                      borderRadius: 6,
+                      borderRadius: 2,
                       padding: "8px 10px",
                       cursor: "pointer",
                       color: C.textMid,
@@ -5182,7 +5205,7 @@ function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userPro
               style={{
                 border: "1px dashed " + C.border,
                 background: C.surface,
-                borderRadius: 8,
+                borderRadius: 2,
                 padding: "9px 12px",
                 cursor: "pointer",
                 color: C.accent,
@@ -5352,7 +5375,7 @@ function Handoff({ handoffs, setHandoffs, focusId, departments = SEED_DEPARTMENT
     width: "100%",
     padding: "9px 12px",
     border: "1px solid " + C.border,
-    borderRadius: 6,
+    borderRadius: 2,
     fontSize: 13,
     fontFamily: "inherit",
     background: C.surface,
@@ -5365,15 +5388,11 @@ function Handoff({ handoffs, setHandoffs, focusId, departments = SEED_DEPARTMENT
     const complete = isComplete(form);
     return (
       <div style={{ padding: "24px 28px", maxWidth: 720 }}>
-        <div style={{ marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-          <div>
-            <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>
-              NEW HANDOFF
-            </div>
-            <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>建立交接單</h1>
-          </div>
-          <Button variant="ghost" onClick={() => { resetForm(); setMode("list"); }}>取消</Button>
-        </div>
+        <PageHeader
+          tag="NEW HANDOFF"
+          title="建立交接單"
+          action={<Button variant="ghost" onClick={() => { resetForm(); setMode("list"); }}>取消</Button>}
+        />
 
         <Card style={{ padding: 20 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto 1fr", gap: 10, alignItems: "end", marginBottom: 16 }}>
@@ -5438,7 +5457,7 @@ function Handoff({ handoffs, setHandoffs, focusId, departments = SEED_DEPARTMENT
               padding: 12,
               background: complete ? C.successLight : C.warnLight,
               border: "1px solid " + (complete ? C.success : C.warn) + "30",
-              borderRadius: 6,
+              borderRadius: 2,
               display: "flex",
               alignItems: "center",
               gap: 10,
@@ -5470,21 +5489,19 @@ function Handoff({ handoffs, setHandoffs, focusId, departments = SEED_DEPARTMENT
   if (mode === "view" && current) {
     return (
       <div style={{ padding: "24px 28px", maxWidth: 720 }}>
-        <div style={{ marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-          <div>
-            <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>
-              HANDOFF {current.caseId}
-            </div>
-            <h1 style={{ fontSize: 22, fontWeight: 700, margin: "4px 0 0" }}>{current.title}</h1>
-            <div style={{ fontSize: 13, color: C.textMid, marginTop: 6, display: "flex", gap: 8, alignItems: "center" }}>
+        <PageHeader
+          tag={`HANDOFF · ${current.caseId}`}
+          title={current.title}
+          subtitle={
+            <span style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <Pill tone="blue">{current.from}</Pill>
               <span style={{ color: C.textLight }}>→</span>
               <Pill tone="teal">{current.to}</Pill>
               <span style={{ color: C.textLight }}>· 建立於 {current.createdAt}</span>
-            </div>
-          </div>
-          <Button variant="ghost" onClick={() => setMode("list")}>← 返回</Button>
-        </div>
+            </span>
+          }
+          action={<Button variant="ghost" onClick={() => setMode("list")}>← 返回</Button>}
+        />
 
         <Card style={{ padding: 20 }}>
           {[
@@ -5497,7 +5514,7 @@ function Handoff({ handoffs, setHandoffs, focusId, departments = SEED_DEPARTMENT
                 <span>{f.num} {f.label}</span>
                 <span style={{ color: C.success, fontSize: 11 }}>✓ 已完成</span>
               </div>
-              <div style={{ padding: "10px 12px", background: C.bg, borderRadius: 6, fontSize: 13, lineHeight: 1.7 }}>
+              <div style={{ padding: "10px 12px", background: C.bg, borderRadius: 2, fontSize: 13, lineHeight: 1.7 }}>
                 {f.value}
               </div>
             </div>
@@ -5512,7 +5529,7 @@ function Handoff({ handoffs, setHandoffs, focusId, departments = SEED_DEPARTMENT
                   style={{
                     padding: "4px 10px",
                     background: C.bg,
-                    borderRadius: 12,
+                    borderRadius: 2,
                     fontSize: 12,
                     border: "1px solid " + C.border,
                     display: "inline-flex",
@@ -5530,7 +5547,7 @@ function Handoff({ handoffs, setHandoffs, focusId, departments = SEED_DEPARTMENT
             style={{
               padding: 12,
               background: current.status === "已簽收" ? C.successLight : C.dangerLight,
-              borderRadius: 6,
+              borderRadius: 2,
               display: "flex",
               alignItems: "center",
               gap: 10,
@@ -5566,18 +5583,16 @@ function Handoff({ handoffs, setHandoffs, focusId, departments = SEED_DEPARTMENT
   // 列表
   return (
     <div style={{ padding: "24px 28px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20 }}>
-        <div>
-          <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>HANDOFF CHECKLIST</div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>案件交接</h1>
-          <div style={{ fontSize: 13, color: C.textMid, marginTop: 4 }}>
-            必填欄位完整才能送出,接手方需明確簽收
-          </div>
-        </div>
-        <Button variant="primary" icon={Plus} onClick={() => setMode("create")}>
-          新增交接單
-        </Button>
-      </div>
+      <PageHeader
+        tag="HANDOFF CHECKLIST"
+        title="案件交接"
+        subtitle="必填欄位完整才能送出,接手方需明確簽收"
+        action={
+          <Button variant="primary" icon={Plus} onClick={() => setMode("create")}>
+            新增交接單
+          </Button>
+        }
+      />
 
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
         {[
@@ -5710,7 +5725,7 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
 
   const inputStyle = {
     width: "100%", padding: "9px 12px", border: "1px solid #D8D5CC",
-    borderRadius: 6, fontSize: 13, fontFamily: "inherit",
+    borderRadius: 2, fontSize: 13, fontFamily: "inherit",
     background: "#FFFFFF", resize: "vertical", boxSizing: "border-box",
   };
   const labelStyle = { fontSize: 12, color: "#6E6862", marginBottom: 5, fontWeight: 500, display: "block" };
@@ -5720,17 +5735,11 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
     const isEdit = mode === "edit";
     return (
       <div style={{ padding: "24px 28px", maxWidth: 760 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20 }}>
-          <div>
-            <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>
-              {isEdit ? "EDIT CASE" : "NEW CASE"}
-            </div>
-            <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>
-              {isEdit ? "編輯歷史案件" : "新增歷史案件"}
-            </h1>
-          </div>
-          <Button variant="ghost" onClick={() => { setMode("list"); setEditingId(null); setForm(emptyForm); }}>取消</Button>
-        </div>
+        <PageHeader
+          tag={isEdit ? "EDIT CASE" : "NEW CASE"}
+          title={isEdit ? "編輯歷史案件" : "新增歷史案件"}
+          action={<Button variant="ghost" onClick={() => { setMode("list"); setEditingId(null); setForm(emptyForm); }}>取消</Button>}
+        />
         <Card style={{ padding: 22 }}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14 }}>
             <div>
@@ -5872,16 +5881,12 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
 
   return (
     <div style={{ padding: "24px 28px", maxWidth: 820 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20 }}>
-        <div>
-          <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>CASE HISTORY</div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>歷史案件搜尋</h1>
-          <div style={{ fontSize: 13, color: C.textMid, marginTop: 4 }}>
-            共 {history.length} 筆案件 · 基於關鍵字比對排序
-          </div>
-        </div>
-        <Button variant="primary" icon={Plus} onClick={() => setMode("create")}>新增案件</Button>
-      </div>
+      <PageHeader
+        tag="CASE HISTORY"
+        title="歷史案件搜尋"
+        subtitle={`共 ${history.length} 筆案件 · 基於關鍵字比對排序`}
+        action={<Button variant="primary" icon={Plus} onClick={() => setMode("create")}>新增案件</Button>}
+      />
 
       <Card style={{ padding: 18, marginBottom: 14 }}>
         <div style={{ position: "relative", marginBottom: 12 }}>
@@ -5895,7 +5900,7 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
               width: "100%",
               padding: "10px 14px 10px 36px",
               border: "1px solid " + C.border,
-              borderRadius: 6,
+              borderRadius: 2,
               fontSize: 14,
               fontFamily: "inherit",
               boxSizing: "border-box",
@@ -5981,7 +5986,7 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
                         ].map((f) => f.value && (
                           <div key={f.label} style={{ marginBottom: 12 }}>
                             <div style={{ fontSize: 11, color: C.textMid, fontWeight: 600, marginBottom: 4 }}>{f.label}</div>
-                            <div style={{ fontSize: 12, lineHeight: 1.7, padding: "8px 10px", background: C.bg, borderRadius: 6 }}>
+                            <div style={{ fontSize: 12, lineHeight: 1.7, padding: "8px 10px", background: C.bg, borderRadius: 2 }}>
                               {f.value}
                             </div>
                           </div>
@@ -5989,7 +5994,7 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
                         {r.detail.keyInsights && (
                           <div style={{ marginBottom: 12 }}>
                             <div style={{ fontSize: 11, color: C.textMid, fontWeight: 600, marginBottom: 4 }}>關鍵洞察</div>
-                            <div style={{ fontSize: 12, lineHeight: 1.9, padding: "8px 10px", background: C.purpleLight, borderRadius: 6, color: "#4A3F70" }}>
+                            <div style={{ fontSize: 12, lineHeight: 1.9, padding: "8px 10px", background: C.purpleLight, borderRadius: 2, color: "#4A3F70" }}>
                               {r.detail.keyInsights.map((k, i) => <div key={i}>• {k}</div>)}
                             </div>
                           </div>
@@ -5998,7 +6003,7 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
                           <div style={{ marginBottom: 12 }}>
                             <div style={{ fontSize: 11, color: C.textMid, fontWeight: 600, marginBottom: 4 }}>結果</div>
                             <div style={{
-                              fontSize: 12, lineHeight: 1.7, padding: "8px 10px", borderRadius: 6,
+                              fontSize: 12, lineHeight: 1.7, padding: "8px 10px", borderRadius: 2,
                               background: r.outcome.includes("投資 ·") ? C.successLight : C.warnLight,
                               color: r.outcome.includes("投資 ·") ? C.success : "#6B4A1F",
                             }}>
@@ -6028,7 +6033,7 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
                                   <div style={{ fontSize: 11, color: C.textLight, marginBottom: 5 }}>📁 相關交接單</div>
                                   {relatedHandoffs.map((h) => (
                                     <div key={h.id} style={{
-                                      padding: "8px 10px", background: C.bg, borderRadius: 6,
+                                      padding: "8px 10px", background: C.bg, borderRadius: 2,
                                       marginBottom: 4, fontSize: 12,
                                       borderLeft: "3px solid " + statusColor(h.status),
                                     }}>
@@ -6046,7 +6051,7 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
                                   <div style={{ fontSize: 11, color: C.textLight, marginBottom: 5 }}>⚖️ 相關決策</div>
                                   {relatedDecisions.map((d) => (
                                     <div key={d.id} style={{
-                                      padding: "8px 10px", background: C.bg, borderRadius: 6,
+                                      padding: "8px 10px", background: C.bg, borderRadius: 2,
                                       marginBottom: 4, fontSize: 12,
                                       borderLeft: "3px solid " + statusColor(d.status),
                                     }}>
@@ -6064,7 +6069,7 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
                                   <div style={{ fontSize: 11, color: C.textLight, marginBottom: 5 }}>📝 相關週報</div>
                                   {relatedReports.map((rp, i) => (
                                     <div key={i} style={{
-                                      padding: "8px 10px", background: C.bg, borderRadius: 6,
+                                      padding: "8px 10px", background: C.bg, borderRadius: 2,
                                       marginBottom: 4, fontSize: 12,
                                       borderLeft: "3px solid " + C.accent,
                                     }}>
@@ -6085,7 +6090,7 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
                             onClick={() => setViewCase(r)}
                             style={{
                               padding: "6px 14px", background: C.accent, color: "white",
-                              border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                              border: "none", borderRadius: 2, fontSize: 12, fontWeight: 600,
                               cursor: "pointer", fontFamily: "inherit",
                             }}
                           >
@@ -6095,7 +6100,7 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
                             onClick={() => startEdit(r)}
                             style={{
                               padding: "6px 14px", background: "white", color: C.text,
-                              border: "1px solid " + C.border, borderRadius: 6, fontSize: 12, fontWeight: 600,
+                              border: "1px solid " + C.border, borderRadius: 2, fontSize: 12, fontWeight: 600,
                               cursor: "pointer", fontFamily: "inherit",
                             }}
                           >
@@ -6105,7 +6110,7 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
                             onClick={() => deleteCase(r)}
                             style={{
                               padding: "6px 14px", background: "white", color: C.danger,
-                              border: "1px solid " + C.danger + "60", borderRadius: 6, fontSize: 12, fontWeight: 600,
+                              border: "1px solid " + C.danger + "60", borderRadius: 2, fontSize: 12, fontWeight: 600,
                               cursor: "pointer", fontFamily: "inherit",
                             }}
                           >
@@ -6120,7 +6125,7 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
                           onClick={() => setViewCase(r)}
                           style={{
                             marginLeft: 8, padding: "4px 10px", background: C.accent, color: "white",
-                            border: "none", borderRadius: 6, fontSize: 11, cursor: "pointer", fontFamily: "inherit",
+                            border: "none", borderRadius: 2, fontSize: 11, cursor: "pointer", fontFamily: "inherit",
                           }}
                         >
                           查看
@@ -6155,7 +6160,7 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
               <div style={{
                 padding: "16px 18px",
                 background: C.warnLight,
-                borderRadius: 6,
+                borderRadius: 2,
                 fontSize: 12,
                 color: "#6B4A1F",
                 marginBottom: 16,
@@ -6182,7 +6187,7 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
                 <div style={{
                   padding: "10px 12px",
                   background: C.bg,
-                  borderRadius: 6,
+                  borderRadius: 2,
                   fontSize: 13,
                   lineHeight: 1.7,
                 }}>
@@ -6199,7 +6204,7 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
                 <div style={{
                   padding: "10px 12px",
                   background: C.purpleLight,
-                  borderRadius: 6,
+                  borderRadius: 2,
                   fontSize: 13,
                   lineHeight: 1.9,
                   color: "#4A3F70",
@@ -6219,7 +6224,7 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
                 <div style={{
                   padding: "10px 12px",
                   background: viewCase.outcome.includes("投資 ·") ? C.successLight : C.warnLight,
-                  borderRadius: 6,
+                  borderRadius: 2,
                   fontSize: 13,
                   lineHeight: 1.7,
                   color: viewCase.outcome.includes("投資 ·") ? C.success : "#6B4A1F",
@@ -6328,15 +6333,11 @@ function BlockerAnalytics({ blockerHistory, blockers = [], reports = [], history
 
   return (
     <div style={{ padding: "24px 28px", maxWidth: 980 }}>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>
-          BLOCKER ANALYTICS
-        </div>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>卡點統計分析</h1>
-        <div style={{ fontSize: 13, color: C.textMid, marginTop: 4 }}>
-          基於歷史 {totalCount} 筆已解決卡點的分位數式管理提醒
-        </div>
-      </div>
+      <PageHeader
+        tag="BLOCKER ANALYTICS"
+        title="卡點統計分析"
+        subtitle={`基於歷史 ${totalCount} 筆已解決卡點的分位數式管理提醒`}
+      />
 
       {/* 總覽統計卡 */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
@@ -6424,7 +6425,7 @@ function BlockerAnalytics({ blockerHistory, blockers = [], reports = [], history
                 style={{
                   padding: 14,
                   background: isSelected ? c.color + "12" : C.bg,
-                  borderRadius: 8,
+                  borderRadius: 2,
                   border: "1px solid " + (isSelected ? c.color + "60" : C.borderLight),
                   cursor: "pointer",
                   transition: "all 0.15s",
@@ -6490,7 +6491,7 @@ function BlockerAnalytics({ blockerHistory, blockers = [], reports = [], history
                   padding: "12px 14px",
                   background: color.bg,
                   border: "1px solid " + color.fg + "30",
-                  borderRadius: 8,
+                  borderRadius: 2,
                 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: color.fg }}>
@@ -6581,7 +6582,7 @@ function BlockerAnalytics({ blockerHistory, blockers = [], reports = [], history
                         background: isExpanded ? cat.color + "08" : C.bg,
                         border: "1px solid " + (isExpanded ? cat.color + "40" : C.borderLight),
                         borderLeft: "3px solid " + cat.color,
-                        borderRadius: 8,
+                        borderRadius: 2,
                         padding: "12px 14px",
                         cursor: "pointer",
                         transition: "all 0.15s",
@@ -6619,7 +6620,7 @@ function BlockerAnalytics({ blockerHistory, blockers = [], reports = [], history
                           ].map((f) => f.value && (
                             <div key={f.label} style={{ marginBottom: 10 }}>
                               <div style={{ fontSize: 11, color: C.textMid, fontWeight: 600, marginBottom: 3 }}>{f.label}</div>
-                              <div style={{ fontSize: 12, lineHeight: 1.7, padding: "7px 10px", background: "white", borderRadius: 6 }}>
+                              <div style={{ fontSize: 12, lineHeight: 1.7, padding: "7px 10px", background: "white", borderRadius: 2 }}>
                                 {f.value}
                               </div>
                             </div>
@@ -6627,7 +6628,7 @@ function BlockerAnalytics({ blockerHistory, blockers = [], reports = [], history
                           {r.detail.keyInsights?.length > 0 && (
                             <div style={{ marginBottom: 10 }}>
                               <div style={{ fontSize: 11, color: C.textMid, fontWeight: 600, marginBottom: 3 }}>關鍵洞察</div>
-                              <div style={{ fontSize: 12, lineHeight: 1.9, padding: "7px 10px", background: C.purpleLight, borderRadius: 6, color: "#4A3F70" }}>
+                              <div style={{ fontSize: 12, lineHeight: 1.9, padding: "7px 10px", background: C.purpleLight, borderRadius: 2, color: "#4A3F70" }}>
                                 {r.detail.keyInsights.map((k, i) => <div key={i}>• {k}</div>)}
                               </div>
                             </div>
@@ -6756,7 +6757,7 @@ function Decisions({ decisions, setDecisions, departments = SEED_DEPARTMENTS, us
     width: "100%",
     padding: "9px 12px",
     border: "1px solid " + C.border,
-    borderRadius: 6,
+    borderRadius: 2,
     fontSize: 13,
     fontFamily: "inherit",
     background: C.surface,
@@ -6770,17 +6771,11 @@ function Decisions({ decisions, setDecisions, departments = SEED_DEPARTMENTS, us
     const isEdit = mode === "edit";
     return (
       <div style={{ padding: "24px 28px", maxWidth: 720 }}>
-        <div style={{ marginBottom: 20, display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
-          <div>
-            <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>
-              {isEdit ? "EDIT DECISION" : "NEW DECISION"}
-            </div>
-            <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>
-              {isEdit ? "編輯管理層決策" : "新增管理層決策"}
-            </h1>
-          </div>
-          <Button variant="ghost" onClick={() => { setMode("list"); setEditingId(null); setForm(emptyForm); }}>取消</Button>
-        </div>
+        <PageHeader
+          tag={isEdit ? "EDIT DECISION" : "NEW DECISION"}
+          title={isEdit ? "編輯管理層決策" : "新增管理層決策"}
+          action={<Button variant="ghost" onClick={() => { setMode("list"); setEditingId(null); setForm(emptyForm); }}>取消</Button>}
+        />
 
         <Card style={{ padding: 20 }}>
           <div style={{ marginBottom: 14 }}>
@@ -6831,16 +6826,12 @@ function Decisions({ decisions, setDecisions, departments = SEED_DEPARTMENTS, us
 
   return (
     <div style={{ padding: "24px 28px", maxWidth: 960 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20 }}>
-        <div>
-          <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>DECISION LOG</div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>管理層決策追蹤</h1>
-          <div style={{ fontSize: 13, color: C.textMid, marginTop: 4 }}>
-            記錄每項管理層決議,追蹤執行進度,避免「說過的事沒人做」
-          </div>
-        </div>
-        <Button variant="primary" icon={Plus} onClick={() => setMode("create")}>新增決策</Button>
-      </div>
+      <PageHeader
+        tag="DECISION LOG"
+        title="管理層決策追蹤"
+        subtitle="記錄每項管理層決議,追蹤執行進度,避免「說過的事沒人做」"
+        action={<Button variant="primary" icon={Plus} onClick={() => setMode("create")}>新增決策</Button>}
+      />
 
       {/* 統計卡 */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
@@ -6901,7 +6892,7 @@ function Decisions({ decisions, setDecisions, departments = SEED_DEPARTMENTS, us
             </SectionTitle>
 
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 16 }}>
-              <div style={{ background: "white", padding: "14px 16px", borderRadius: 8 }}>
+              <div style={{ background: "white", padding: "14px 16px", borderRadius: 2 }}>
                 <div style={{ fontSize: 11, color: C.textMid, marginBottom: 4 }}>整體達成率</div>
                 <div style={{ fontSize: 22, fontWeight: 700, color: overallRate >= 70 ? C.success : overallRate >= 50 ? C.warn : C.danger }}>
                   {overallRate}%
@@ -6910,7 +6901,7 @@ function Decisions({ decisions, setDecisions, departments = SEED_DEPARTMENTS, us
                   {stats.done} / {stats.total} 件按時完成
                 </div>
               </div>
-              <div style={{ background: "white", padding: "14px 16px", borderRadius: 8 }}>
+              <div style={{ background: "white", padding: "14px 16px", borderRadius: 2 }}>
                 <div style={{ fontSize: 11, color: C.textMid, marginBottom: 4 }}>平均執行時長</div>
                 <div style={{ fontSize: 22, fontWeight: 700, color: C.text }}>
                   {avgDays} 天
@@ -6919,7 +6910,7 @@ function Decisions({ decisions, setDecisions, departments = SEED_DEPARTMENTS, us
                   從決議到完成的平均時間
                 </div>
               </div>
-              <div style={{ background: "white", padding: "14px 16px", borderRadius: 8 }}>
+              <div style={{ background: "white", padding: "14px 16px", borderRadius: 2 }}>
                 <div style={{ fontSize: 11, color: C.textMid, marginBottom: 4 }}>逾期率</div>
                 <div style={{ fontSize: 22, fontWeight: 700, color: stats.overdue > 0 ? C.danger : C.success }}>
                   {Math.round((stats.overdue / stats.total) * 100)}%
@@ -6932,7 +6923,7 @@ function Decisions({ decisions, setDecisions, departments = SEED_DEPARTMENTS, us
 
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               {/* 部門達成率 */}
-              <div style={{ background: "white", padding: 14, borderRadius: 8 }}>
+              <div style={{ background: "white", padding: 14, borderRadius: 2 }}>
                 <div style={{ fontSize: 12, color: C.textMid, fontWeight: 500, marginBottom: 10 }}>
                   各部門達成率
                 </div>
@@ -6962,7 +6953,7 @@ function Decisions({ decisions, setDecisions, departments = SEED_DEPARTMENTS, us
               </div>
 
               {/* 決議單位達成率 */}
-              <div style={{ background: "white", padding: 14, borderRadius: 8 }}>
+              <div style={{ background: "white", padding: 14, borderRadius: 2 }}>
                 <div style={{ fontSize: 12, color: C.textMid, fontWeight: 500, marginBottom: 10 }}>
                   決議單位達成率
                 </div>
@@ -6997,7 +6988,7 @@ function Decisions({ decisions, setDecisions, departments = SEED_DEPARTMENTS, us
               padding: "10px 12px",
               background: "white",
               border: "1px solid " + C.borderLight,
-              borderRadius: 6,
+              borderRadius: 2,
               fontSize: 11,
               color: C.textMid,
               lineHeight: 1.7,
@@ -7036,7 +7027,7 @@ function Decisions({ decisions, setDecisions, departments = SEED_DEPARTMENTS, us
                 <div key={s.label} style={{
                   background: C.bg,
                   padding: "12px 14px",
-                  borderRadius: 8,
+                  borderRadius: 2,
                   border: "1px solid " + C.borderLight,
                   textAlign: "center",
                 }}>
@@ -7116,7 +7107,7 @@ function Decisions({ decisions, setDecisions, departments = SEED_DEPARTMENTS, us
               marginTop: 14,
               padding: "10px 12px",
               background: C.purpleLight,
-              borderRadius: 6,
+              borderRadius: 2,
               fontSize: 11,
               color: "#3C3489",
               lineHeight: 1.7,
@@ -7190,7 +7181,7 @@ function Decisions({ decisions, setDecisions, departments = SEED_DEPARTMENTS, us
             <div style={{
               padding: "12px 14px",
               background: C.bg,
-              borderRadius: 6,
+              borderRadius: 2,
               fontSize: 13,
               lineHeight: 1.7,
               marginBottom: 14,
@@ -7213,7 +7204,7 @@ function Decisions({ decisions, setDecisions, departments = SEED_DEPARTMENTS, us
                 <div key={f.label} style={{
                   padding: "10px 12px",
                   background: C.bg,
-                  borderRadius: 6,
+                  borderRadius: 2,
                 }}>
                   <div style={{ fontSize: 11, color: C.textLight, marginBottom: 3 }}>{f.label}</div>
                   <div style={{ fontSize: 13, fontWeight: 500 }}>
@@ -7229,7 +7220,7 @@ function Decisions({ decisions, setDecisions, departments = SEED_DEPARTMENTS, us
                 <div style={{
                   padding: "10px 12px",
                   background: C.accentLight,
-                  borderRadius: 6,
+                  borderRadius: 2,
                   fontSize: 13,
                   color: C.accent,
                   lineHeight: 1.7,
@@ -7281,15 +7272,11 @@ function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES
 
   return (
     <div style={{ padding: "24px 28px", maxWidth: 980 }}>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>
-          EMPLOYEE LOAD
-        </div>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>員工負載分析</h1>
-        <div style={{ fontSize: 13, color: C.textMid, marginTop: 4 }}>
-          從週報、交接單、被提及次數綜合計算工作負載,協助管理層掌握資源分配
-        </div>
-      </div>
+      <PageHeader
+        tag="EMPLOYEE LOAD"
+        title="員工負載分析"
+        subtitle="從週報、交接單、被提及次數綜合計算工作負載,協助管理層掌握資源分配"
+      />
 
       {/* 統計卡 */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
@@ -7328,7 +7315,7 @@ function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES
                       padding: "14px 14px",
                       background: info.bg,
                       border: "1px solid " + info.color + "30",
-                      borderRadius: 8,
+                      borderRadius: 2,
                       cursor: "pointer",
                       transition: "all 0.15s",
                     }}
@@ -7390,7 +7377,7 @@ function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES
                 padding: 18,
                 background: info.bg,
                 border: "1px solid " + info.color + "30",
-                borderRadius: 8,
+                borderRadius: 2,
                 marginBottom: 16,
                 textAlign: "center",
               }}>
@@ -7419,7 +7406,7 @@ function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES
                     alignItems: "center",
                     padding: "10px 12px",
                     background: C.bg,
-                    borderRadius: 6,
+                    borderRadius: 2,
                   }}>
                     <div>
                       <div style={{ fontSize: 13 }}>{item.label}</div>
@@ -7446,7 +7433,7 @@ function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES
                   <div style={{
                     padding: "10px 12px",
                     background: deptHasReport ? C.successLight : C.warnLight,
-                    borderRadius: 6,
+                    borderRadius: 2,
                     fontSize: 12,
                     color: deptHasReport ? C.success : "#6B4A1F",
                     display: "flex",
@@ -7496,7 +7483,7 @@ function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES
                     <div style={{
                       padding: 12,
                       background: C.bg,
-                      borderRadius: 6,
+                      borderRadius: 2,
                       border: "1px solid " + C.borderLight,
                     }}>
                       {/* 趨勢圖 */}
@@ -7534,15 +7521,15 @@ function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES
                         gap: 6,
                         fontSize: 10,
                       }}>
-                        <div style={{ textAlign: "center", padding: "4px 6px", background: "white", borderRadius: 4 }}>
+                        <div style={{ textAlign: "center", padding: "4px 6px", background: "white", borderRadius: 2 }}>
                           <div style={{ color: C.textLight }}>每週案件數</div>
                           <div style={{ fontWeight: 600 }}>{growth.avgCaseCount}</div>
                         </div>
-                        <div style={{ textAlign: "center", padding: "4px 6px", background: "white", borderRadius: 4 }}>
+                        <div style={{ textAlign: "center", padding: "4px 6px", background: "white", borderRadius: 2 }}>
                           <div style={{ color: C.textLight }}>關鍵字多元性</div>
                           <div style={{ fontWeight: 600 }}>{growth.avgKeywordDiversity}</div>
                         </div>
-                        <div style={{ textAlign: "center", padding: "4px 6px", background: "white", borderRadius: 4 }}>
+                        <div style={{ textAlign: "center", padding: "4px 6px", background: "white", borderRadius: 2 }}>
                           <div style={{ color: C.textLight }}>跨部門協作</div>
                           <div style={{ fontWeight: 600 }}>{growth.avgCrossDept}</div>
                         </div>
@@ -7552,7 +7539,7 @@ function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES
                         marginTop: 8,
                         padding: "6px 10px",
                         background: "white",
-                        borderRadius: 4,
+                        borderRadius: 2,
                         fontSize: 10,
                         color: C.textMid,
                         lineHeight: 1.6,
@@ -7574,7 +7561,7 @@ function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES
                   marginTop: 12,
                   padding: "10px 12px",
                   background: C.dangerLight,
-                  borderRadius: 6,
+                  borderRadius: 2,
                   fontSize: 12,
                   color: C.danger,
                   lineHeight: 1.7,
@@ -7587,7 +7574,7 @@ function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES
                   marginTop: 12,
                   padding: "10px 12px",
                   background: C.accentLight,
-                  borderRadius: 6,
+                  borderRadius: 2,
                   fontSize: 12,
                   color: C.accent,
                   lineHeight: 1.7,
@@ -7633,7 +7620,7 @@ function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES
             <div style={{
               padding: "12px 14px",
               background: C.accentLight,
-              borderRadius: 6,
+              borderRadius: 2,
               fontSize: 12,
               color: C.accent,
               marginBottom: 16,
@@ -7656,7 +7643,7 @@ function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES
               <div style={{
                 padding: "12px 14px",
                 background: C.bg,
-                borderRadius: 6,
+                borderRadius: 2,
                 display: "grid",
                 gridTemplateColumns: "1fr 1fr 1fr",
                 gap: 10,
@@ -7706,7 +7693,7 @@ function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES
                 <div style={{
                   padding: "10px 12px",
                   background: C.bg,
-                  borderRadius: 6,
+                  borderRadius: 2,
                   fontSize: 12,
                   lineHeight: 1.7,
                   whiteSpace: "pre-wrap",
@@ -7725,7 +7712,7 @@ function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES
                 <div style={{
                   padding: "10px 12px",
                   background: C.warnLight,
-                  borderRadius: 6,
+                  borderRadius: 2,
                   fontSize: 12,
                   lineHeight: 1.7,
                   color: "#7A4900",
@@ -7744,7 +7731,7 @@ function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES
                 <div style={{
                   padding: "10px 12px",
                   background: C.purpleLight,
-                  borderRadius: 6,
+                  borderRadius: 2,
                   fontSize: 12,
                   lineHeight: 1.7,
                   color: "#3C3489",
@@ -7762,7 +7749,7 @@ function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES
               <div style={{
                 padding: "12px 14px",
                 background: C.successLight,
-                borderRadius: 6,
+                borderRadius: 2,
                 border: "1px dashed " + C.success,
               }}>
                 {oneOnOneCard.topics.map((t, i) => (
@@ -7790,7 +7777,7 @@ function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES
                 <div style={{
                   padding: "10px 12px",
                   background: C.bg,
-                  borderRadius: 6,
+                  borderRadius: 2,
                   fontSize: 12,
                   lineHeight: 1.7,
                   color: C.textMid,
@@ -7807,7 +7794,7 @@ function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES
             <div style={{
               padding: "12px 14px",
               background: "linear-gradient(135deg, #1F4E79 0%, #2E75B6 100%)",
-              borderRadius: 6,
+              borderRadius: 2,
               fontSize: 12,
               color: "white",
               lineHeight: 1.8,
@@ -7866,15 +7853,11 @@ function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS
 
   return (
     <div style={{ padding: "24px 28px", maxWidth: 980 }}>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>
-          ORGANIZATION ANALYTICS
-        </div>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>組織分析</h1>
-        <div style={{ fontSize: 13, color: C.textMid, marginTop: 4 }}>
-          部門互動網絡 + 趨勢預警 · 協助管理層掌握組織協作健康度
-        </div>
-      </div>
+      <PageHeader
+        tag="ORGANIZATION ANALYTICS"
+        title="組織分析"
+        subtitle="部門互動網絡 + 趨勢預警 · 協助管理層掌握組織協作健康度"
+      />
 
       {/* B1. 部門互動網絡圖 */}
       <Card style={{ padding: 20, marginBottom: 16 }}>
@@ -7886,7 +7869,7 @@ function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS
           {/* SVG 網絡圖 */}
           <div style={{
             background: C.bg,
-            borderRadius: 8,
+            borderRadius: 2,
             border: "1px solid " + C.borderLight,
             padding: 8,
           }}>
@@ -8036,7 +8019,7 @@ function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS
                   marginTop: 12,
                   padding: "14px 16px",
                   background: C.purpleLight,
-                  borderRadius: 8,
+                  borderRadius: 2,
                   border: "1px solid " + C.purple + "40",
                   animation: "fadeIn 0.15s ease-out",
                 }}>
@@ -8062,7 +8045,7 @@ function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS
                       ) : outEdges.map((e, i) => (
                         <div key={i} style={{
                           display: "flex", justifyContent: "space-between",
-                          padding: "5px 8px", background: "white", borderRadius: 4,
+                          padding: "5px 8px", background: "white", borderRadius: 2,
                           marginBottom: 4, fontSize: 12,
                         }}>
                           <span>→ {e.to}</span>
@@ -8079,7 +8062,7 @@ function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS
                       ) : inEdges.map((e, i) => (
                         <div key={i} style={{
                           display: "flex", justifyContent: "space-between",
-                          padding: "5px 8px", background: "white", borderRadius: 4,
+                          padding: "5px 8px", background: "white", borderRadius: 2,
                           marginBottom: 4, fontSize: 12,
                         }}>
                           <span>← {e.from}</span>
@@ -8113,7 +8096,7 @@ function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS
                   <div key={d} style={{
                     padding: "10px 12px",
                     background: C.bg,
-                    borderRadius: 6,
+                    borderRadius: 2,
                   }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                       <span style={{ fontSize: 12, fontWeight: 600 }}>{d}</span>
@@ -8130,7 +8113,7 @@ function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS
             <div style={{
               padding: 12,
               background: C.purpleLight,
-              borderRadius: 6,
+              borderRadius: 2,
               fontSize: 11,
               color: "#3C3489",
               lineHeight: 1.7,
@@ -8168,7 +8151,7 @@ function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS
                   padding: "14px 16px",
                   background: color.bg,
                   border: "1px solid " + color.fg + "30",
-                  borderRadius: 8,
+                  borderRadius: 2,
                 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
                     <div style={{ flex: 1 }}>
@@ -8193,7 +8176,7 @@ function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS
                     <div style={{
                       padding: "6px 8px",
                       background: "white",
-                      borderRadius: 4,
+                      borderRadius: 2,
                       textAlign: "center",
                     }}>
                       <div style={{ color: C.textMid, fontSize: 10 }}>下週預測</div>
@@ -8202,7 +8185,7 @@ function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS
                     <div style={{
                       padding: "6px 8px",
                       background: "white",
-                      borderRadius: 4,
+                      borderRadius: 2,
                       textAlign: "center",
                     }}>
                       <div style={{ color: C.textMid, fontSize: 10 }}>近 3 週均</div>
@@ -8211,7 +8194,7 @@ function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS
                     <div style={{
                       padding: "6px 8px",
                       background: "white",
-                      borderRadius: 4,
+                      borderRadius: 2,
                       textAlign: "center",
                     }}>
                       <div style={{ color: C.textMid, fontSize: 10 }}>8 週均</div>
@@ -8220,7 +8203,7 @@ function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS
                     <div style={{
                       padding: "6px 8px",
                       background: "white",
-                      borderRadius: 4,
+                      borderRadius: 2,
                       textAlign: "center",
                     }}>
                       <div style={{ color: C.textMid, fontSize: 10 }}>趨勢斜率</div>
@@ -8387,27 +8370,21 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
 
   return (
     <div style={{ padding: "24px 28px", maxWidth: 980 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 20 }}>
-        <div>
-          <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>
-            MEETING PREPARATION
+      <PageHeader
+        tag="MEETING PREPARATION"
+        title="會議準備中心"
+        subtitle="系統根據資料自動生成議程 · 援引 Andy Grove 會議準備理論"
+        action={
+          <div style={{ display: "flex", gap: 8 }}>
+            <Button variant="secondary" icon={Search} size="sm" onClick={() => setShowHistory(true)}>
+              歷史紀錄 ({(meetingHistory || []).length})
+            </Button>
+            <Button variant="primary" icon={Plus} size="sm" onClick={() => setShowAddModal(true)}>
+              新增會議
+            </Button>
           </div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0", color: C.text }}>
-            會議準備中心
-          </h1>
-          <div style={{ fontSize: 13, color: C.textMid, marginTop: 4 }}>
-            系統根據資料自動生成議程 · 援引 Andy Grove 會議準備理論
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <Button variant="secondary" icon={Search} size="sm" onClick={() => setShowHistory(true)}>
-            歷史紀錄 ({(meetingHistory || []).length})
-          </Button>
-          <Button variant="primary" icon={Plus} size="sm" onClick={() => setShowAddModal(true)}>
-            新增會議
-          </Button>
-        </div>
-      </div>
+        }
+      />
 
       {/* 即將到來的會議列表 */}
       <Card style={{ padding: 18, marginBottom: 16 }}>
@@ -8435,7 +8412,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
                   padding: "14px 16px",
                   background: isSelected ? m.color + "15" : C.bg,
                   border: "2px solid " + (isSelected ? m.color : "transparent"),
-                  borderRadius: 10,
+                  borderRadius: 2,
                   cursor: "pointer",
                   transition: "all 0.2s",
                   position: "relative",
@@ -8459,7 +8436,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
-                      borderRadius: 4,
+                      borderRadius: 2,
                     }}
                     title="移除並歸檔"
                   >
@@ -8539,7 +8516,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
                 style={{
                   padding: "14px 16px",
                   background: C.bg,
-                  borderRadius: 8,
+                  borderRadius: 2,
                   border: "1px solid " + C.borderLight,
                   borderLeft: "3px solid " + C.highlight,
                 }}
@@ -8580,7 +8557,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
                     marginBottom: 6,
                     padding: "4px 8px",
                     background: "rgba(184, 84, 80, 0.04)",
-                    borderRadius: 4,
+                    borderRadius: 2,
                   }}>
                     💭 為什麼討論:{item.reasoning}
                   </div>
@@ -8592,7 +8569,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
                     color: C.accent,
                     padding: "6px 10px",
                     background: C.accentLight,
-                    borderRadius: 4,
+                    borderRadius: 2,
                     fontWeight: 500,
                   }}>
                     → 建議方向:{item.direction}
@@ -8609,7 +8586,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
               padding: "12px 14px",
               background: C.bg,
               border: "1px solid " + C.borderLight,
-              borderRadius: 6,
+              borderRadius: 2,
               fontSize: 11,
               color: C.textMid,
               lineHeight: 1.8,
@@ -8645,7 +8622,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
                 width: "100%",
                 padding: "9px 12px",
                 border: "1px solid " + C.border,
-                borderRadius: 6,
+                borderRadius: 2,
                 fontSize: 13,
                 fontFamily: "inherit",
                 boxSizing: "border-box",
@@ -8666,7 +8643,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
                 width: "100%",
                 padding: "9px 12px",
                 border: "1px solid " + C.border,
-                borderRadius: 6,
+                borderRadius: 2,
                 fontSize: 13,
                 fontFamily: "inherit",
                 boxSizing: "border-box",
@@ -8687,7 +8664,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
                 width: "100%",
                 padding: "9px 12px",
                 border: "1px solid " + C.border,
-                borderRadius: 6,
+                borderRadius: 2,
                 fontSize: 13,
                 fontFamily: "inherit",
                 boxSizing: "border-box",
@@ -8708,7 +8685,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
                   width: "100%",
                   padding: "9px 12px",
                   border: "1px solid " + C.border,
-                  borderRadius: 6,
+                  borderRadius: 2,
                   fontSize: 13,
                   fontFamily: "inherit",
                   boxSizing: "border-box",
@@ -8726,7 +8703,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
                   width: "100%",
                   padding: "9px 12px",
                   border: "1px solid " + C.border,
-                  borderRadius: 6,
+                  borderRadius: 2,
                   fontSize: 13,
                   fontFamily: "inherit",
                   boxSizing: "border-box",
@@ -8755,7 +8732,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
                 width: "100%",
                 padding: "9px 12px",
                 border: "1px solid " + C.border,
-                borderRadius: 6,
+                borderRadius: 2,
                 fontSize: 13,
                 fontFamily: "inherit",
                 boxSizing: "border-box",
@@ -8823,7 +8800,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
             <div style={{
               padding: "10px 12px",
               background: C.bg,
-              borderRadius: 6,
+              borderRadius: 2,
               fontSize: 12,
               color: C.textMid,
               marginBottom: 14,
@@ -8841,7 +8818,7 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
                   <div key={i} style={{
                     padding: "10px 12px",
                     background: C.bg,
-                    borderRadius: 6,
+                    borderRadius: 2,
                     marginBottom: 6,
                     borderLeft: "2px solid " + C.highlight,
                   }}>
@@ -8890,13 +8867,11 @@ function LineBot({ reports, handoffs }) {
 
   return (
     <div style={{ padding: "24px 28px", maxWidth: 820 }}>
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ fontSize: 11, color: C.textLight, letterSpacing: 1.5, fontWeight: 500 }}>LINE BOT</div>
-        <h1 style={{ fontSize: 24, fontWeight: 700, margin: "4px 0 0" }}>LINE Bot 推播預覽</h1>
-        <div style={{ fontSize: 13, color: C.textMid, marginTop: 4 }}>
-          系統將於以下時機自動推播(預覽根據目前系統狀態動態生成)
-        </div>
-      </div>
+      <PageHeader
+        tag="LINE BOT"
+        title="LINE Bot 推播預覽"
+        subtitle="系統將於以下時機自動推播(預覽根據目前系統狀態動態生成)"
+      />
 
       <div style={{ display: "grid", gridTemplateColumns: "360px 1fr", gap: 24, alignItems: "start" }}>
         {/* 手機畫面 */}
@@ -8991,7 +8966,7 @@ const BotMsg = ({ children, danger }) => (
         background: danger ? C.dangerLight : "white",
         border: danger ? "1px solid #F09595" : "none",
         color: danger ? C.danger : C.text,
-        borderRadius: 10,
+        borderRadius: 2,
         padding: "8px 11px",
         maxWidth: 240,
         fontSize: 12,
@@ -9965,7 +9940,7 @@ export default function App() {
         </div>
 
         {/* 右側：日期 + 同步狀態 + 使用者 + 登出 */}
-        <div style={{
+        <div className="top-header-right" style={{
           marginLeft: "auto",
           display: "flex",
           alignItems: "center",
@@ -9973,21 +9948,21 @@ export default function App() {
           fontSize: 12,
           color: C.textMid,
         }}>
-          <span style={{ letterSpacing: "0.02em" }}>
+          <span className="desktop-only" style={{ letterSpacing: "0.02em" }}>
             {NOW.getFullYear()}/{String(NOW.getMonth() + 1).padStart(2, "0")}/{String(NOW.getDate()).padStart(2, "0")}
             <span style={{ marginLeft: 4, color: C.textLight }}>
               ({["日", "一", "二", "三", "四", "五", "六"][NOW.getDay()]})
             </span>
           </span>
-          <span style={{ width: 1, height: 16, background: C.borderLight }} />
-          <span style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11 }}>
+          <span className="desktop-only" style={{ width: 1, height: 16, background: C.borderLight }} />
+          <span className="desktop-only" style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11 }}>
             <span style={{
               display: "inline-block", width: 7, height: 7, borderRadius: "50%",
               background: syncStatus === "error" ? C.danger : syncStatus === "syncing" ? C.warn : C.success,
             }} />
             {syncStatus === "syncing" ? "同步中" : syncStatus === "error" ? "同步失敗" : "已同步"}
           </span>
-          <span style={{ width: 1, height: 16, background: C.borderLight }} />
+          <span className="desktop-only" style={{ width: 1, height: 16, background: C.borderLight }} />
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <div style={{
               width: 30, height: 30,

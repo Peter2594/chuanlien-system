@@ -9,6 +9,50 @@
       * { box-sizing: border-box; }
       html, body, #root { margin: 0; padding: 0; height: 100%; }
       body { font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif; }
+
+      /* ========== Mobile Responsive (≤ 768px) ========== */
+      @media (max-width: 768px) {
+        /* 主導覽列：橫向滾動，避免擠壓 */
+        nav { overflow-x: auto; flex-wrap: nowrap !important; -webkit-overflow-scrolling: touch; }
+        nav::-webkit-scrollbar { display: none; }
+        nav button { white-space: nowrap; padding: 11px 12px !important; font-size: 12px !important; }
+
+        /* Header 主品牌區：垂直排列、簡化右側 */
+        body { font-size: 14px; }
+
+        /* PageHeader 在小螢幕上分行 */
+        .page-header { flex-direction: column !important; align-items: flex-start !important; }
+        .page-header h1 { font-size: 20px !important; }
+
+        /* 4 欄統計卡 → 2 欄 */
+        [style*="repeat(4, 1fr)"] {
+          grid-template-columns: repeat(2, 1fr) !important;
+        }
+        /* 2 欄分屏 → 1 欄 */
+        [style*="grid-template-columns: 1fr 1fr"],
+        [style*="gridTemplateColumns: \"1fr 1fr\""] {
+          grid-template-columns: 1fr !important;
+        }
+        /* 大寬度容器自適應 */
+        [style*="maxWidth: 980"], [style*="maxWidth: 960"], [style*="maxWidth: 820"], [style*="maxWidth: 760"], [style*="maxWidth: 720"], [style*="maxWidth: 640"] {
+          max-width: 100% !important;
+        }
+
+        /* 主 Header 右側資訊縮減 */
+        .top-header-right { gap: 8px !important; flex-wrap: wrap; }
+
+        /* 內容區域縮小 padding */
+        main > div[style*="padding: \"24px 28px\""],
+        main > div[style*="padding: 24px 28px"] {
+          padding: 16px 14px !important;
+        }
+      }
+
+      @media (max-width: 480px) {
+        /* 超小螢幕：隱藏部分次要資訊 */
+        .top-header-right .desktop-only { display: none !important; }
+        .page-header h1 { font-size: 18px !important; }
+      }
     </style>
   </head>
   <body>
