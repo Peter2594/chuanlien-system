@@ -503,8 +503,8 @@ const SEED_REPORTS = [
 const SEED_HANDOFFS = [
   {
     id: "h1",
-    from: "業開部",
-    to: "投研部",
+    from: "業務開發部",
+    to: "投資研究部",
     caseId: "C-2025-042",
     title: "A 新創 Pre-A 輪產業分析委託",
     background: "A 新創為 FinTech 領域 Pre-A 輪標的,已完成初步接觸。客戶端希望於 11 月中完成投資條件書。需研究部進行產業競品分析。",
@@ -518,8 +518,8 @@ const SEED_HANDOFFS = [
   },
   {
     id: "h2",
-    from: "業開部",
-    to: "資管部",
+    from: "業務開發部",
+    to: "資產管理部",
     caseId: "C-2025-048",
     title: "D 客戶 NDA 草案審閱",
     background: "D 客戶擬投資金額 3000 萬,需先完成 NDA 後進入盡調。",
@@ -534,8 +534,8 @@ const SEED_HANDOFFS = [
   },
   {
     id: "h3",
-    from: "投研部",
-    to: "業開部",
+    from: "投資研究部",
+    to: "業務開發部",
     caseId: "C-2025-051",
     title: "E 標的訪談紀錄整理",
     background: "E 標的為教育科技新創,業開部需訪談紀錄進行下一步接觸。",
@@ -550,8 +550,8 @@ const SEED_HANDOFFS = [
   },
   {
     id: "h4",
-    from: "資管部",
-    to: "投研部",
+    from: "資產管理部",
+    to: "投資研究部",
     caseId: "C-2025-039",
     title: "K 公司退場稅務評估委託",
     background: "K 公司為 2024 年 Q2 投資標的,目前估值已成長 2.3 倍,評估退場時機。需研究部從產業角度判斷下一波成長空間。",
@@ -565,8 +565,8 @@ const SEED_HANDOFFS = [
   },
   {
     id: "h5",
-    from: "業開部",
-    to: "投研部",
+    from: "業務開發部",
+    to: "投資研究部",
     caseId: "C-2025-053",
     title: "G 公司初次評估",
     background: "G 公司為 SaaS 類 Series A 標的,本週透過業界活動接觸。創辦人為前 Google 工程師團隊,有具體 PMF 證據。",
@@ -581,8 +581,8 @@ const SEED_HANDOFFS = [
   },
   {
     id: "h6",
-    from: "投研部",
-    to: "資管部",
+    from: "投資研究部",
+    to: "資產管理部",
     caseId: "C-2025-040",
     title: "M 平台估值方法論共享",
     background: "資管部於 K 公司退場評估中需參考類似 SaaS 標的的估值方法。M 平台為今年初評估過的相似標的。",
@@ -596,8 +596,8 @@ const SEED_HANDOFFS = [
   },
   {
     id: "h7",
-    from: "資管部",
-    to: "業開部",
+    from: "資產管理部",
+    to: "業務開發部",
     caseId: "C-2025-052",
     title: "Q4 募資簡報內容協助",
     background: "Q4 募資對外簡報需業開部提供市場開發數據與客戶 traction。",
@@ -612,8 +612,8 @@ const SEED_HANDOFFS = [
   },
   {
     id: "h8",
-    from: "業開部",
-    to: "投研部",
+    from: "業務開發部",
+    to: "投資研究部",
     caseId: "C-2025-035",
     title: "B 公司競品比較追加分析",
     background: "B 公司產業分析中,業開部從客戶處取得新的競品資訊,需研究部納入比較表。",
@@ -627,8 +627,8 @@ const SEED_HANDOFFS = [
   },
   {
     id: "h9",
-    from: "投研部",
-    to: "資管部",
+    from: "投資研究部",
+    to: "資產管理部",
     caseId: "C-2025-031",
     title: "P 公司 A 輪追加投資風險評估",
     background: "既有投資 P 公司(保險科技)進入 A 輪,需評估是否追加。",
@@ -642,8 +642,8 @@ const SEED_HANDOFFS = [
   },
   {
     id: "h10",
-    from: "投研部",
-    to: "業開部",
+    from: "投資研究部",
+    to: "業務開發部",
     caseId: "C-2025-046",
     title: "C 標的決議不投資通知",
     background: "C 標的經兩輪盡調後,投資委員會於 10/14 決議不投資。需通知業開部維持後續關係。",
@@ -657,8 +657,8 @@ const SEED_HANDOFFS = [
   },
   {
     id: "h11",
-    from: "資管部",
-    to: "業開部",
+    from: "資產管理部",
+    to: "業務開發部",
     caseId: "C-2025-049",
     title: "10 月既有客戶關係維護資料",
     background: "Q4 例行性投資組合公司關係維護,需業開部協助安排見面或簡訊問候。",
@@ -672,8 +672,8 @@ const SEED_HANDOFFS = [
   },
   {
     id: "h12",
-    from: "業開部",
-    to: "資管部",
+    from: "業務開發部",
+    to: "資產管理部",
     caseId: "C-2025-054",
     title: "H 客戶基金結構諮詢請求",
     background: "H 客戶為新接觸的家族辦公室,有意參與 Q4 募資但對基金結構有疑問。",
@@ -686,6 +686,86 @@ const SEED_HANDOFFS = [
     createdAt: "2025-10-17",
     hoursOverdue: 8,
   },
+  // ============================================================
+  // 程序化擴充：從去年 6 月起每週 1-2 筆交接單，跨越 49 週
+  // ============================================================
+  ...(() => {
+    const seedRandom = (seed) => {
+      let s = seed * 9301 + 49297;
+      return () => {
+        s = (s * 9301 + 49297) % 233280;
+        return s / 233280;
+      };
+    };
+    const pick = (arr, rnd) => arr[Math.floor(rnd() * arr.length)];
+    const deptPairs = [
+      { from: "業務開發部", to: "投資研究部", sender: "林聿平", receiver: "周世倫" },
+      { from: "業務開發部", to: "投資研究部", sender: "林欣逸", receiver: "鍾皓明" },
+      { from: "業務開發部", to: "資產管理部", sender: "林聿平", receiver: "梁嘉芫" },
+      { from: "業務開發部", to: "資產管理部", sender: "蔡明遠", receiver: "陳雅文" },
+      { from: "投資研究部", to: "業務開發部", sender: "周世倫", receiver: "林聿平" },
+      { from: "投資研究部", to: "業務開發部", sender: "鍾皓明", receiver: "林欣逸" },
+      { from: "投資研究部", to: "資產管理部", sender: "周世倫", receiver: "梁嘉芫" },
+      { from: "資產管理部", to: "投資研究部", sender: "梁嘉芫", receiver: "周世倫" },
+      { from: "資產管理部", to: "業務開發部", sender: "陳雅文", receiver: "蔡明遠" },
+    ];
+    const caseTypes = [
+      { code: "A 新創", actions: ["盡職調查委託", "財報補件追蹤", "估值區間確認", "Pre-A 條件書草擬"] },
+      { code: "B 公司", actions: ["產業分析委託", "競品比較表審閱", "投資契約準備", "盡調報告交付"] },
+      { code: "C 標的", actions: ["二次訪談紀錄", "估值試算", "投委會決議轉達", "退件處理"] },
+      { code: "D 客戶", actions: ["NDA 草案審閱", "客戶背景調查", "簽約時程確認", "盡調預備會"] },
+      { code: "E 標的", actions: ["教育科技初評", "創辦人面談紀錄", "市場調研", "退件評估"] },
+      { code: "F 標的", actions: ["醫療法規審查", "市場大小估算", "客戶留存分析", "競品評估"] },
+      { code: "G 公司", actions: ["客戶接觸排程", "管理層會議", "投資簡報", "後續追蹤"] },
+      { code: "K 公司", actions: ["退場稅務評估", "退場時機分析", "投組季報資料", "B 輪追加評估"] },
+      { code: "L 標的", actions: ["法律意見書追蹤", "監管風險評估", "結案報告", "退件處理"] },
+      { code: "M 平台", actions: ["盡調進度同步", "客戶結構分析", "估值期待對齊", "觀望追蹤"] },
+      { code: "N 公司", actions: ["技術盡調", "客戶訪談紀錄", "財務模型驗證", "後續監控"] },
+      { code: "P 公司", actions: ["A 輪追加評估", "董事會資料審閱", "KPI 達成檢視", "估值更新"] },
+    ];
+    const statuses = ["已簽收", "已簽收", "已簽收", "已簽收", "待簽收"]; // 80% 已簽收
+    const hoursOverdueOptions = [12, 24, 48, 72];
+
+    const out = [];
+    let id = 100;
+    // 從 8 週前開始往回推到 49 週前
+    for (let weeksAgo = 8; weeksAgo <= 49; weeksAgo++) {
+      const target = new Date();
+      target.setDate(target.getDate() - weeksAgo * 7);
+      const rnd = seedRandom(weeksAgo * 211 + 17);
+      // 每週 1-2 筆交接
+      const numHandoffs = rnd() > 0.4 ? 2 : 1;
+      for (let i = 0; i < numHandoffs; i++) {
+        const pair = pick(deptPairs, rnd);
+        const c = pick(caseTypes, rnd);
+        const action = pick(c.actions, rnd);
+        const status = pick(statuses, rnd);
+        const dayOffset = Math.floor(rnd() * 5); // 該週的週一到週五任一天
+        const createdAt = new Date(target);
+        createdAt.setDate(createdAt.getDate() + dayOffset);
+        const handoff = {
+          id: "h" + (id++),
+          from: pair.from,
+          to: pair.to,
+          caseId: `C-${createdAt.getFullYear()}-${String(id).padStart(3, "0")}`,
+          title: `${c.code} ${action}`,
+          background: `${c.code} 為近期持續推進的案件，本次需 ${pair.to} 協助完成 ${action}。`,
+          progress: rnd() > 0.5 ? "前置準備已完成，主要資料已送達。" : "初步資料整理中，部分文件待補。",
+          todo: `完成 ${action}，並回覆評估結果。`,
+          attachments: [`${c.code}_${action}.pdf`],
+          status,
+          sender: pair.sender,
+          receiver: pair.receiver,
+          createdAt: createdAt.toISOString().slice(0, 10),
+        };
+        if (status === "待簽收" && weeksAgo <= 2) {
+          handoff.hoursOverdue = pick(hoursOverdueOptions, rnd);
+        }
+        out.push(handoff);
+      }
+    }
+    return out;
+  })(),
 ];
 
 const SEED_HISTORY_LEGACY = [
@@ -5616,6 +5696,8 @@ function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userPro
 function Handoff({ handoffs, setHandoffs, focusId, departments = SEED_DEPARTMENTS, userProfile }) {
   const [mode, setMode] = useState(focusId ? "view" : "list");
   const [currentId, setCurrentId] = useState(focusId || null);
+  const [timeRange, setTimeRange] = useState("4w");
+  const [statusFilter, setStatusFilter] = useState("all");
   const deptNames = activeDeptNames(departments);
   const defaultFrom = deptNames[1] || deptNames[0] || "";
   const defaultTo = deptNames[0] || "";
@@ -5933,22 +6015,100 @@ function Handoff({ handoffs, setHandoffs, focusId, departments = SEED_DEPARTMENT
         }
       />
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        {[
-          { lbl: "待簽收", count: handoffs.filter((h) => h.status === "待簽收").length, tone: "danger" },
-          { lbl: "已簽收", count: handoffs.filter((h) => h.status === "已簽收").length, tone: "teal" },
-        ].map((s) => (
-          <Card key={s.lbl} style={{ padding: "10px 16px", display: "inline-flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 12, color: C.textMid }}>{s.lbl}</span>
-            <span style={{ fontSize: 18, fontWeight: 600, color: s.tone === "danger" ? C.danger : C.success }}>
-              {s.count}
-            </span>
-          </Card>
-        ))}
+      {/* 篩選器 */}
+      <div style={{ display: "flex", gap: 14, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ display: "flex", border: "1px solid " + C.border, background: "white" }}>
+          {[
+            { k: "1w", label: "本週" },
+            { k: "4w", label: "近 4 週" },
+            { k: "12w", label: "3 個月" },
+            { k: "26w", label: "半年" },
+            { k: "all", label: "全部" },
+          ].map((opt, i) => (
+            <button
+              key={opt.k}
+              onClick={() => setTimeRange(opt.k)}
+              style={{
+                padding: "6px 12px",
+                background: timeRange === opt.k ? C.accent : "white",
+                color: timeRange === opt.k ? "white" : C.textMid,
+                border: "none",
+                borderLeft: i > 0 ? "1px solid " + C.border : "none",
+                fontSize: 12,
+                fontWeight: timeRange === opt.k ? 700 : 500,
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+            >{opt.label}</button>
+          ))}
+        </div>
+        <div style={{ display: "flex", border: "1px solid " + C.border, background: "white" }}>
+          {[
+            { k: "all", label: "全部狀態" },
+            { k: "待簽收", label: "待簽收" },
+            { k: "已簽收", label: "已簽收" },
+          ].map((opt, i) => (
+            <button
+              key={opt.k}
+              onClick={() => setStatusFilter(opt.k)}
+              style={{
+                padding: "6px 12px",
+                background: statusFilter === opt.k ? C.text : "white",
+                color: statusFilter === opt.k ? "white" : C.textMid,
+                border: "none",
+                borderLeft: i > 0 ? "1px solid " + C.border : "none",
+                fontSize: 12,
+                fontWeight: statusFilter === opt.k ? 700 : 500,
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+            >{opt.label}</button>
+          ))}
+        </div>
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {handoffs.map((h) => (
+      {(() => {
+        // 套用 filter
+        const cutoff = new Date();
+        const weeksMap = { "1w": 1, "4w": 4, "12w": 12, "26w": 26 };
+        if (timeRange !== "all") {
+          cutoff.setDate(cutoff.getDate() - (weeksMap[timeRange] || 4) * 7);
+        }
+        const filtered = handoffs.filter((h) => {
+          if (statusFilter !== "all" && h.status !== statusFilter) return false;
+          if (timeRange !== "all") {
+            const d = h.createdAt ? new Date(h.createdAt) : null;
+            if (!d || d < cutoff) return false;
+          }
+          return true;
+        }).sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+
+        const pendingCount = filtered.filter((h) => h.status === "待簽收").length;
+        const doneCount = filtered.filter((h) => h.status === "已簽收").length;
+
+        return (
+          <>
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              {[
+                { lbl: "待簽收", count: pendingCount, tone: "danger" },
+                { lbl: "已簽收", count: doneCount, tone: "teal" },
+                { lbl: "顯示中", count: filtered.length, tone: "neutral" },
+              ].map((s) => (
+                <Card key={s.lbl} style={{ padding: "10px 16px", display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 12, color: C.textMid }}>{s.lbl}</span>
+                  <span style={{ fontSize: 18, fontWeight: 600, color: s.tone === "danger" ? C.danger : s.tone === "teal" ? C.success : C.text }}>
+                    {s.count}
+                  </span>
+                </Card>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {filtered.length === 0 ? (
+                <Card style={{ padding: "30px 20px", textAlign: "center", color: C.textLight, fontSize: 13 }}>
+                  此時間範圍內無交接單
+                </Card>
+              ) : filtered.map((h) => (
           <Card
             key={h.id}
             style={{ padding: "14px 18px", cursor: "pointer" }}
@@ -5977,7 +6137,10 @@ function Handoff({ handoffs, setHandoffs, focusId, departments = SEED_DEPARTMENT
             </div>
           </Card>
         ))}
-      </div>
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }
@@ -9701,12 +9864,21 @@ export default function App() {
           fetchDocumentCollection("auditLogs", []),
           fetchDocumentCollection("history", SEED_HISTORY),
         ]);
-        // 偵測舊格式 reports (week 含「第 N 週」字樣)，整批換成最新 SEED
+        // 偵測舊格式 reports (week 含「第 N 週」字樣) 或筆數過少，整批換成最新 SEED
         const hasOldWeekFormat = (r || []).some((x) => /第\s*\d+\s*週/.test(String(x.week || "")));
-        const finalReports = hasOldWeekFormat ? SEED_REPORTS : r;
-        const finalBlockers = hasOldWeekFormat ? SEED_BLOCKERS : (b.length ? b : [...SEED_BLOCKERS, ...createLegacyBlockersFromReports(finalReports)]);
+        const reportsTooFew = (r || []).length < 30;
+        // 偵測 handoffs 是否還在用部門短稱 (業開部/投研部/資管部)
+        const handoffsHasShortName = (h || []).some((x) =>
+          /^(業開部|投研部|資管部|管理層)$/.test(String(x.from || "")) ||
+          /^(業開部|投研部|資管部|管理層)$/.test(String(x.to || ""))
+        );
+        const handoffsTooFew = (h || []).length < 30;
+        const needReset = hasOldWeekFormat || reportsTooFew;
+        const finalReports = needReset ? SEED_REPORTS : r;
+        const finalHandoffs = (handoffsTooFew || handoffsHasShortName) ? SEED_HANDOFFS : h;
+        const finalBlockers = needReset ? SEED_BLOCKERS : (b.length ? b : [...SEED_BLOCKERS, ...createLegacyBlockersFromReports(finalReports)]);
         reportsSnapshotRef.current = finalReports;
-        handoffsSnapshotRef.current = h;
+        handoffsSnapshotRef.current = finalHandoffs;
         decisionsSnapshotRef.current = d;
         blockersSnapshotRef.current = finalBlockers;
         customMeetingsSnapshotRef.current = cm;
@@ -9716,7 +9888,7 @@ export default function App() {
         usersSnapshotRef.current = userRows;
         auditLogsSnapshotRef.current = logs;
         setReports(finalReports);
-        setHandoffs(h);
+        setHandoffs(finalHandoffs);
         setDecisions(d);
         setBlockers(finalBlockers);
         setEmployees(emp);
