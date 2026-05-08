@@ -318,7 +318,9 @@ const SEED_REPORTS_HISTORICAL = (() => {
   ];
 
   weeks.forEach((w, idx) => {
-    const submitDate = new Date(2025, 7, 26 + idx * 7).toISOString().slice(0, 10);
+    const submitDate = new Date(NOW);
+    submitDate.setDate(submitDate.getDate() - (7 - idx) * 7 + 4); // 推算到當週週五
+    const sd = submitDate.toISOString().slice(0, 10);
     [
       { dept: "投資研究部", author: "周世倫", story: researchStory[idx] },
       { dept: "業務開發部", author: "林聿平", story: bizStory[idx] },
@@ -329,7 +331,7 @@ const SEED_REPORTS_HISTORICAL = (() => {
         dept: d.dept,
         week: w.label,
         author: d.author,
-        submittedAt: `${submitDate} 17:${(j + 1) * 12}`,
+        submittedAt: `${sd} 17:${(j + 1) * 12}`,
         cases: d.story.cases,
         blockers: d.story.blockers,
         needHelp: d.story.needHelp,
@@ -338,6 +340,121 @@ const SEED_REPORTS_HISTORICAL = (() => {
       });
     });
   });
+
+  // ============================================================
+  // 擴展：從第 8 週前回溯到去年 9 月（約 34 週歷史）
+  // 用程序化產生 (確定性,基於週次種子) 提供連貫但有變化的歷史資料
+  // ============================================================
+  const seedRandom = (seed) => {
+    let s = seed * 9301 + 49297;
+    return () => {
+      s = (s * 9301 + 49297) % 233280;
+      return s / 233280;
+    };
+  };
+  const pick = (arr, rnd) => arr[Math.floor(rnd() * arr.length)];
+
+  // 案件代號池(會隨時間更替)
+  const caseRegistry = [
+    { code: "A 新創", domain: "FinTech" }, { code: "B 公司", domain: "B2B SaaS" },
+    { code: "C 標的", domain: "電商" }, { code: "D 客戶", domain: "金融" },
+    { code: "E 標的", domain: "教育科技" }, { code: "F 標的", domain: "教育科技" },
+    { code: "G 公司", domain: "醫療" }, { code: "H 案件", domain: "物流" },
+    { code: "I 標的", domain: "農業科技" }, { code: "J 案件", domain: "資安" },
+    { code: "K 公司", domain: "支付 SaaS" }, { code: "L 標的", domain: "保險科技" },
+    { code: "M 平台", domain: "理財" }, { code: "N 公司", domain: "倉儲" },
+    { code: "P 公司", domain: "保險" }, { code: "R 公司", domain: "電子" },
+  ];
+  const seasonTopics = (date) => {
+    const m = date.getMonth() + 1;
+    if (m >= 1 && m <= 3) return ["Q1", "年度規劃", "新年開工"];
+    if (m >= 4 && m <= 6) return ["Q2", "年中盤點", "中期評估"];
+    if (m >= 7 && m <= 9) return ["Q3", "暑期會議", "結算"];
+    return ["Q4", "年底結算", "明年規劃"];
+  };
+  const blockerPool = {
+    research: ["財務資料延遲", "法律意見書未到", "競品數據缺漏", "估值假設待管理層拍板", "盡調訪談排程困難"],
+    biz: ["客戶聯繫困難", "NDA 條款談判中", "客戶決策慢", "創辦人行程難排", "競標對手出價"],
+    asset: ["法遵審核排隊", "稅務試算複雜", "風險模型參數待確認", "投組季報缺資料", "預算審批流程"],
+  };
+  const helpPool = {
+    research: ["請業開部聯繫客戶補資料", "需資管部協助評估風險", "需管理層拍板方向"],
+    biz: ["需投研部加速產業評估", "需資管部協助 NDA", "需管理層確認預算"],
+    asset: ["需投研部提供風險評估", "需業開部引介稅務顧問", "需管理層核准方案"],
+  };
+
+  // 計算需要回溯到 2025/09/01 的週數
+  const targetStart = new Date(2025, 8, 1); // 2025-09-01
+  const oldestRequired = Math.ceil((NOW - targetStart) / (86400000 * 7));
+  const oldestExisting = 7;
+  const totalOlder = Math.max(0, oldestRequired - oldestExisting);
+
+  for (let i = oldestExisting + 1; i <= oldestExisting + totalOlder; i++) {
+    const target = new Date(NOW);
+    target.setDate(target.getDate() - i * 7);
+    const wkNum = getISOWeek(target);
+    const wkLabel = formatWeekLabel(i);
+    const submitTarget = new Date(target);
+    submitTarget.setDate(submitTarget.getDate() + 4); // 該週週五
+    const sd = submitTarget.toISOString().slice(0, 10);
+
+    const rnd = seedRandom(wkNum * 137 + target.getFullYear());
+    const seasons = seasonTopics(target);
+
+    [
+      {
+        dept: "投資研究部", author: "周世倫", key: "research",
+        verbs: ["盡調", "估值", "產業分析", "競品比較", "財務模型", "風險評估"],
+      },
+      {
+        dept: "業務開發部", author: "林聿平", key: "biz",
+        verbs: ["接觸", "簽約", "NDA", "提案", "簡報", "客戶開發"],
+      },
+      {
+        dept: "資產管理部", author: "梁嘉芫", key: "asset",
+        verbs: ["法遵審核", "投組季報", "稅務評估", "募資配置", "退場評估"],
+      },
+    ].forEach((d, j) => {
+      const cases = [];
+      const numCases = 2 + Math.floor(rnd() * 3); // 2-4 件案件
+      const usedCases = new Set();
+      for (let k = 0; k < numCases; k++) {
+        const c = pick(caseRegistry, rnd);
+        if (usedCases.has(c.code)) continue;
+        usedCases.add(c.code);
+        const verb = pick(d.verbs, rnd);
+        cases.push(`• ${c.code} ${verb}${rnd() > 0.7 ? "(進度 " + (40 + Math.floor(rnd() * 50)) + "%)" : ""}`);
+      }
+      // 偶爾加入季度議題
+      if (rnd() > 0.6) {
+        cases.push(`• ${pick(seasons, rnd)}相關工作`);
+      }
+
+      const hasBlocker = rnd() > 0.45;
+      const hasHelp = rnd() > 0.5;
+      const blocker = hasBlocker ? pick(blockerPool[d.key], rnd) : "";
+      const help = hasHelp ? pick(helpPool[d.key], rnd) : "";
+
+      const keywords = [
+        ...Array.from(usedCases).slice(0, 3),
+        pick(seasons, rnd),
+      ];
+      if (rnd() > 0.6) keywords.push(pick(d.verbs, rnd));
+
+      data.push({
+        id: `r-w${target.getFullYear()}-${wkNum}-${j + 1}`,
+        dept: d.dept,
+        week: wkLabel,
+        author: d.author,
+        submittedAt: `${sd} 17:${(j + 1) * 12}`,
+        cases: cases.join("\n"),
+        blockers: blocker,
+        needHelp: help,
+        nextWeek: `推進${pick(Array.from(usedCases), rnd) || "本週"}進度`,
+        keywords,
+      });
+    });
+  }
 
   return data;
 })();
@@ -1794,7 +1911,7 @@ function loadLevelInfo(level) {
 // B1. 部門互動網絡分析
 // 從週報文字中找「我提到別的部門」的次數,建立鄰接矩陣
 // ============================================================
-function analyzeDeptNetwork(reports, departments = SEED_DEPARTMENTS) {
+function analyzeDeptNetwork(reports, departments = SEED_DEPARTMENTS, handoffs = []) {
   const depts = activeDeptNames(departments);
   const deptShortMap = departments.reduce((map, dept) => {
     if (dept.active === false) return map;
@@ -1802,6 +1919,13 @@ function analyzeDeptNetwork(reports, departments = SEED_DEPARTMENTS) {
     if (dept.shortName) map[dept.shortName] = dept.name;
     return map;
   }, {});
+
+  // 將短稱解析回正式部門名 (如 "投研部" → "投資研究部")
+  const resolveDept = (name) => {
+    if (!name) return null;
+    return deptShortMap[name] || (depts.includes(name) ? name : null);
+  };
+
   // 鄰接矩陣 matrix[from][to] = count
   const matrix = {};
   depts.forEach((d) => {
@@ -1809,11 +1933,11 @@ function analyzeDeptNetwork(reports, departments = SEED_DEPARTMENTS) {
     depts.forEach((d2) => { matrix[d][d2] = 0; });
   });
 
+  // 1. 從週報文字中提及其他部門的次數
   reports.forEach((r) => {
     const fullText = `${r.cases || ""}\n${r.blockers || ""}\n${r.needHelp || ""}\n${r.nextWeek || ""}`;
     depts.forEach((targetDept) => {
       if (targetDept === r.dept) return;
-      // 計算 fullText 中提到目標部門的次數(短稱+全稱)
       let count = 0;
       Object.entries(deptShortMap).forEach(([alias, fullName]) => {
         if (fullName !== targetDept) return;
@@ -1822,6 +1946,15 @@ function analyzeDeptNetwork(reports, departments = SEED_DEPARTMENTS) {
       });
       matrix[r.dept][targetDept] += count;
     });
+  });
+
+  // 2. 案件交接：每筆交接 = 一次明確的部門間連結 (權重加倍因為比文字提及更具體)
+  (handoffs || []).forEach((h) => {
+    const from = resolveDept(h.from);
+    const to = resolveDept(h.to);
+    if (from && to && from !== to && matrix[from] && matrix[from][to] !== undefined) {
+      matrix[from][to] += 2; // 每筆交接 +2 (代表一次具體的協作)
+    }
   });
 
   // 轉成 edges 列表(供視覺化用)
@@ -5082,11 +5215,43 @@ function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userPro
 
   return (
     <div style={{ padding: "24px 28px", maxWidth: 720 }}>
-      <PageHeader
-        tag="WEEKLY REPORT"
-        title="本週週報填寫"
-        subtitle={`${displayWeek(getLatestWeekDisplay(reports))} · 請於週五下班前完成`}
-      />
+      {(() => {
+        // 計算本週週五日期
+        const friday = new Date(NOW);
+        const day = friday.getDay();
+        const daysToFri = day === 0 ? 5 : day <= 5 ? 5 - day : 12 - day;
+        friday.setDate(friday.getDate() + daysToFri);
+        const fmt = (d) => `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
+        const daysLeft = Math.ceil((friday - NOW) / 86400000);
+        const isOverdue = daysLeft < 0;
+        const isToday = daysLeft === 0;
+        return (
+          <PageHeader
+            tag="WEEKLY REPORT"
+            title="本週週報填寫"
+            subtitle={
+              <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span>{displayWeek(getLatestWeekDisplay(reports))}</span>
+                <span style={{ color: C.textLight }}>·</span>
+                <span style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  padding: "2px 8px",
+                  background: isOverdue ? C.dangerLight : isToday ? C.warnLight : C.accentLight,
+                  color: isOverdue ? C.danger : isToday ? "#7A4F00" : C.accent,
+                  fontWeight: 600,
+                  fontSize: 11,
+                  letterSpacing: "0.03em",
+                }}>
+                  繳交期限：{fmt(friday)} (週五)
+                  {isOverdue ? ` · 已逾期 ${-daysLeft} 天` : isToday ? " · 今日截止" : ` · 還有 ${daysLeft} 天`}
+                </span>
+              </span>
+            }
+          />
+        );
+      })()}
 
       <Card style={{ padding: 20 }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
@@ -5279,6 +5444,79 @@ function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userPro
           ))}
         </div>
       </div>
+
+      {/* 歷史週報瀏覽 */}
+      {(() => {
+        const currentWeek = getLatestWeek(reports);
+        // 依週次分組,並排除本週
+        const grouped = {};
+        reports.forEach((r) => {
+          if (r.week === currentWeek) return;
+          if (!grouped[r.week]) grouped[r.week] = [];
+          grouped[r.week].push(r);
+        });
+        const parseDate = (w) => {
+          const m = String(w || "").match(/(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
+          return m ? new Date(+m[1], +m[2] - 1, +m[3]) : new Date(0);
+        };
+        const sortedWeeks = Object.keys(grouped).sort((a, b) => parseDate(b) - parseDate(a));
+        if (sortedWeeks.length === 0) return null;
+        return (
+          <div style={{ marginTop: 28 }}>
+            <SectionTitle color={C.accent} hint={`共 ${sortedWeeks.length} 個歷史週次`}>
+              歷史週報
+            </SectionTitle>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {sortedWeeks.slice(0, 6).map((wk, idx) => {
+                const label = idx === 0 ? "上週" : idx === 1 ? "上上週" : `${idx + 1} 週前`;
+                return (
+                  <div key={wk}>
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 10, marginBottom: 8,
+                      paddingBottom: 6, borderBottom: "1px solid " + C.borderLight,
+                    }}>
+                      <span style={{
+                        padding: "2px 10px", background: C.accent, color: "white",
+                        fontSize: 10, fontWeight: 700, letterSpacing: "0.05em",
+                      }}>
+                        {label}
+                      </span>
+                      <span style={{ fontSize: 12, color: C.textMid }}>{displayWeek(wk)}</span>
+                      <span style={{ marginLeft: "auto", fontSize: 11, color: C.textLight }}>
+                        {grouped[wk].length} 份週報
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {grouped[wk].map((r) => (
+                        <Card key={r.id} style={{ padding: "10px 14px" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                                <span style={{ fontSize: 13, fontWeight: 600 }}>{r.dept}</span>
+                                <span style={{ fontSize: 11, color: C.textLight }}>· {r.author}</span>
+                              </div>
+                              {r.cases && (
+                                <div style={{ fontSize: 11, color: C.textMid, lineHeight: 1.6 }}>
+                                  {String(r.cases).split("\n")[0].slice(0, 80)}{String(r.cases).split("\n")[0].length > 80 ? "..." : ""}
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", gap: 3, flexWrap: "wrap", justifyContent: "flex-end", flexShrink: 0 }}>
+                              {(r.keywords || []).slice(0, 3).map((kw) => (
+                                <Pill key={kw} tone="purple">{kw}</Pill>
+                              ))}
+                            </div>
+                          </div>
+                        </Card>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -7831,8 +8069,36 @@ function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES
 // ============================================================
 // 組織分析頁(B1 + B2)
 // ============================================================
-function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS }) {
-  const network = useMemo(() => analyzeDeptNetwork(reports, departments), [reports, departments]);
+function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS, handoffs = [] }) {
+  const [timeRange, setTimeRange] = useState("4w"); // "1w" | "4w" | "8w" | "all"
+
+  // 從 r.week 字串解析開始日期 (例: "2026/05/04 – 05/10" → Date)
+  const reportWeekStart = (r) => {
+    const m = String(r.week || "").match(/(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
+    if (!m) return null;
+    return new Date(+m[1], +m[2] - 1, +m[3]);
+  };
+
+  const { filteredReports, filteredHandoffs } = useMemo(() => {
+    if (timeRange === "all") return { filteredReports: reports, filteredHandoffs: handoffs };
+    const weeksMap = { "1w": 1, "4w": 4, "8w": 8 };
+    const cutoff = new Date(NOW);
+    cutoff.setDate(cutoff.getDate() - (weeksMap[timeRange] || 4) * 7);
+    const fr = reports.filter((r) => {
+      const d = reportWeekStart(r);
+      return d && d >= cutoff;
+    });
+    const fh = handoffs.filter((h) => {
+      const d = h.createdAt ? new Date(h.createdAt) : null;
+      return d && d >= cutoff;
+    });
+    return { filteredReports: fr, filteredHandoffs: fh };
+  }, [reports, handoffs, timeRange]);
+
+  const network = useMemo(
+    () => analyzeDeptNetwork(filteredReports, departments, filteredHandoffs),
+    [filteredReports, departments, filteredHandoffs]
+  );
   const predictions = useMemo(() => predictNextWeek(activityHistory, departments), [activityHistory, departments]);
   const [selectedDept, setSelectedDept] = useState(null);
 
@@ -7856,7 +8122,38 @@ function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS
       <PageHeader
         tag="ORGANIZATION ANALYTICS"
         title="組織分析"
-        subtitle="部門互動網絡 + 趨勢預警 · 協助管理層掌握組織協作健康度"
+        subtitle={`部門互動網絡 + 趨勢預警 · 統計範圍：${
+          timeRange === "1w" ? "本週" : timeRange === "4w" ? "近 4 週" : timeRange === "8w" ? "近 8 週" : "全部歷史"
+        } · 共 ${filteredReports.length} 份週報、${filteredHandoffs.length} 筆交接`}
+        action={
+          <div style={{ display: "flex", border: "1px solid " + C.border, background: "white" }}>
+            {[
+              { k: "1w", label: "本週" },
+              { k: "4w", label: "近 4 週" },
+              { k: "8w", label: "近 8 週" },
+              { k: "all", label: "全部" },
+            ].map((opt, i) => (
+              <button
+                key={opt.k}
+                onClick={() => setTimeRange(opt.k)}
+                style={{
+                  padding: "7px 14px",
+                  background: timeRange === opt.k ? C.accent : "white",
+                  color: timeRange === opt.k ? "white" : C.textMid,
+                  border: "none",
+                  borderLeft: i > 0 ? "1px solid " + C.border : "none",
+                  fontSize: 12,
+                  fontWeight: timeRange === opt.k ? 700 : 500,
+                  cursor: "pointer",
+                  fontFamily: "inherit",
+                  letterSpacing: "0.05em",
+                }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        }
       />
 
       {/* B1. 部門互動網絡圖 */}
@@ -10301,7 +10598,7 @@ export default function App() {
         {currentTab === "employees" && <EmployeeLoad reports={reports} handoffs={handoffs} decisions={decisions} employees={employees} />}
         {currentTab === "history" && <History history={history} setHistory={setHistory} handoffs={handoffs} decisions={decisions} reports={reports} userProfile={userProfile} />}
         {currentTab === "analytics" && <BlockerAnalytics blockerHistory={blockerHistory} blockers={blockers} reports={reports} history={history} />}
-        {currentTab === "orgnetwork" && <OrgAnalytics reports={reports} activityHistory={activityHistory} departments={departments} />}
+        {currentTab === "orgnetwork" && <OrgAnalytics reports={reports} activityHistory={activityHistory} departments={departments} handoffs={handoffs} />}
         {currentTab === "meetings" && <MeetingPrep
           reports={reports}
           handoffs={handoffs}
