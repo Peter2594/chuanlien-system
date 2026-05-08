@@ -9621,14 +9621,28 @@ function MeetingPrep({ reports, handoffs, decisions, blockerHistory, blockers = 
                     background: C.bg,
                     borderRadius: 2,
                     marginBottom: 6,
-                    borderLeft: "2px solid " + C.highlight,
+                    borderLeft: "2px solid " + (item.priority === "high" ? C.danger : C.highlight),
                   }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: C.text, marginBottom: 4 }}>
-                      {i + 1}. {item.title}
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: C.text }}>
+                        {i + 1}. {item.title}
+                      </div>
+                      {item.priority && (
+                        <Pill tone={item.priority === "high" ? "danger" : "neutral"}>
+                          {item.priority === "high" ? "高優先" : "中"}
+                        </Pill>
+                      )}
                     </div>
-                    <ul style={{ margin: 0, paddingLeft: 18, fontSize: 11, color: C.textMid }}>
-                      {item.bullets.map((b, j) => <li key={j}>{b}</li>)}
-                    </ul>
+                    {Array.isArray(item.bullets) && item.bullets.length > 0 && (
+                      <ul style={{ margin: 0, paddingLeft: 18, fontSize: 11, color: C.textMid }}>
+                        {item.bullets.map((b, j) => <li key={j}>{b}</li>)}
+                      </ul>
+                    )}
+                    {item.notes && (
+                      <div style={{ fontSize: 11, color: C.textMid, lineHeight: 1.6, marginTop: 4 }}>
+                        {item.notes}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
