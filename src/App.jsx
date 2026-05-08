@@ -383,8 +383,8 @@ const SEED_REPORTS_HISTORICAL = (() => {
     asset: ["需投研部提供風險評估", "需業開部引介稅務顧問", "需管理層核准方案"],
   };
 
-  // 計算需要回溯到 2025/09/01 的週數
-  const targetStart = new Date(2025, 8, 1); // 2025-09-01
+  // 計算需要回溯到 2025/06/01 的週數
+  const targetStart = new Date(2025, 5, 1); // 2025-06-01
   const oldestRequired = Math.ceil((NOW - targetStart) / (86400000 * 7));
   const oldestExisting = 7;
   const totalOlder = Math.max(0, oldestRequired - oldestExisting);
@@ -5091,6 +5091,10 @@ function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userPro
   const [needHelp, setNeedHelp] = useState("");
   const [nextWeek, setNextWeek] = useState("");
   const [justSaved, setJustSaved] = useState(false);
+  // 歷史週報展開/篩選
+  const [historyVisibleCount, setHistoryVisibleCount] = useState(8);
+  const [historyDeptFilter, setHistoryDeptFilter] = useState("all");
+  const [expandedWeek, setExpandedWeek] = useState(null);
   const emptyBlockerDraft = () => ({
     title: "",
     description: "",
@@ -5448,10 +5452,10 @@ function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userPro
       {/* 歷史週報瀏覽 */}
       {(() => {
         const currentWeek = getLatestWeek(reports);
-        // 依週次分組,並排除本週
         const grouped = {};
         reports.forEach((r) => {
           if (r.week === currentWeek) return;
+          if (historyDeptFilter !== "all" && r.dept !== historyDeptFilter) return;
           if (!grouped[r.week]) grouped[r.week] = [];
           grouped[r.week].push(r);
         });
@@ -5461,59 +5465,144 @@ function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userPro
         };
         const sortedWeeks = Object.keys(grouped).sort((a, b) => parseDate(b) - parseDate(a));
         if (sortedWeeks.length === 0) return null;
+        const totalWeeks = sortedWeeks.length;
+        const visibleWeeks = sortedWeeks.slice(0, historyVisibleCount);
+
         return (
           <div style={{ marginTop: 28 }}>
-            <SectionTitle color={C.accent} hint={`共 ${sortedWeeks.length} 個歷史週次`}>
+            <SectionTitle color={C.accent} hint={`顯示 ${visibleWeeks.length} / ${totalWeeks} 週`}>
               歷史週報
             </SectionTitle>
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {sortedWeeks.slice(0, 6).map((wk, idx) => {
+
+            {/* 部門篩選 + 數量切換 */}
+            <div style={{ display: "flex", gap: 14, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+              <div style={{ display: "flex", border: "1px solid " + C.border, background: "white" }}>
+                {[{ k: "all", label: "全部部門" }, ...deptNames.map((n) => ({ k: n, label: n }))].map((opt, i) => (
+                  <button
+                    key={opt.k}
+                    onClick={() => { setHistoryDeptFilter(opt.k); setHistoryVisibleCount(8); }}
+                    style={{
+                      padding: "6px 12px",
+                      background: historyDeptFilter === opt.k ? C.accent : "white",
+                      color: historyDeptFilter === opt.k ? "white" : C.textMid,
+                      border: "none",
+                      borderLeft: i > 0 ? "1px solid " + C.border : "none",
+                      fontSize: 12,
+                      fontWeight: historyDeptFilter === opt.k ? 700 : 500,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >{opt.label}</button>
+                ))}
+              </div>
+              <div style={{ marginLeft: "auto", fontSize: 11, color: C.textLight }}>
+                點任一週次標題可展開該週全文
+              </div>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {visibleWeeks.map((wk, idx) => {
                 const label = idx === 0 ? "上週" : idx === 1 ? "上上週" : `${idx + 1} 週前`;
+                const isExpanded = expandedWeek === wk;
                 return (
-                  <div key={wk}>
-                    <div style={{
-                      display: "flex", alignItems: "center", gap: 10, marginBottom: 8,
-                      paddingBottom: 6, borderBottom: "1px solid " + C.borderLight,
-                    }}>
+                  <div key={wk} style={{
+                    border: "1px solid " + (isExpanded ? C.accent + "60" : C.borderLight),
+                    background: isExpanded ? "white" : C.surface,
+                  }}>
+                    {/* 週次列頭(可點) */}
+                    <div
+                      onClick={() => setExpandedWeek(isExpanded ? null : wk)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 10,
+                        padding: "10px 14px", cursor: "pointer",
+                        borderBottom: isExpanded ? "1px solid " + C.borderLight : "none",
+                        transition: "background 0.12s",
+                      }}
+                      onMouseEnter={(e) => { if (!isExpanded) e.currentTarget.style.background = C.bg; }}
+                      onMouseLeave={(e) => { if (!isExpanded) e.currentTarget.style.background = "transparent"; }}
+                    >
                       <span style={{
                         padding: "2px 10px", background: C.accent, color: "white",
                         fontSize: 10, fontWeight: 700, letterSpacing: "0.05em",
                       }}>
                         {label}
                       </span>
-                      <span style={{ fontSize: 12, color: C.textMid }}>{displayWeek(wk)}</span>
+                      <span style={{ fontSize: 12, color: C.textMid, fontWeight: 600 }}>{displayWeek(wk)}</span>
                       <span style={{ marginLeft: "auto", fontSize: 11, color: C.textLight }}>
                         {grouped[wk].length} 份週報
                       </span>
+                      <ChevronRight size={14} color={C.textLight} style={{
+                        transform: isExpanded ? "rotate(90deg)" : "none",
+                        transition: "transform 0.2s",
+                      }} />
                     </div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {grouped[wk].map((r) => (
-                        <Card key={r.id} style={{ padding: "10px 14px" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-                                <span style={{ fontSize: 13, fontWeight: 600 }}>{r.dept}</span>
-                                <span style={{ fontSize: 11, color: C.textLight }}>· {r.author}</span>
-                              </div>
-                              {r.cases && (
-                                <div style={{ fontSize: 11, color: C.textMid, lineHeight: 1.6 }}>
-                                  {String(r.cases).split("\n")[0].slice(0, 80)}{String(r.cases).split("\n")[0].length > 80 ? "..." : ""}
-                                </div>
-                              )}
+
+                    {/* 展開內容 */}
+                    {isExpanded ? (
+                      <div style={{ padding: "12px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
+                        {grouped[wk].map((r) => (
+                          <div key={r.id} style={{
+                            padding: "10px 12px", background: C.bg, borderLeft: "3px solid " + C.accent,
+                          }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                              <span style={{ fontSize: 13, fontWeight: 600 }}>{r.dept} · {r.author}</span>
+                              <span style={{ fontSize: 10, color: C.textLight }}>{r.submittedAt}</span>
                             </div>
-                            <div style={{ display: "flex", gap: 3, flexWrap: "wrap", justifyContent: "flex-end", flexShrink: 0 }}>
-                              {(r.keywords || []).slice(0, 3).map((kw) => (
-                                <Pill key={kw} tone="purple">{kw}</Pill>
-                              ))}
+                            {r.cases && (
+                              <div style={{ marginBottom: 6 }}>
+                                <div style={{ fontSize: 10, color: C.textLight, marginBottom: 2 }}>本週案件</div>
+                                <div style={{ fontSize: 12, color: C.text, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>{r.cases}</div>
+                              </div>
+                            )}
+                            {r.blockers && (
+                              <div style={{ marginBottom: 6 }}>
+                                <div style={{ fontSize: 10, color: C.danger, marginBottom: 2 }}>⚠ 卡點</div>
+                                <div style={{ fontSize: 12, color: C.text, lineHeight: 1.6 }}>{r.blockers}</div>
+                              </div>
+                            )}
+                            {r.needHelp && (
+                              <div style={{ marginBottom: 6 }}>
+                                <div style={{ fontSize: 10, color: C.warn, marginBottom: 2 }}>🤝 需要協助</div>
+                                <div style={{ fontSize: 12, color: C.text, lineHeight: 1.6 }}>{r.needHelp}</div>
+                              </div>
+                            )}
+                            <div style={{ display: "flex", gap: 3, flexWrap: "wrap", marginTop: 6 }}>
+                              {(r.keywords || []).map((kw) => (<Pill key={kw} tone="purple">{kw}</Pill>))}
                             </div>
                           </div>
-                        </Card>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div style={{ padding: "0 14px 10px", display: "flex", flexDirection: "column", gap: 4 }}>
+                        {grouped[wk].map((r) => (
+                          <div key={r.id} style={{ fontSize: 11, color: C.textMid, lineHeight: 1.6 }}>
+                            <span style={{ color: C.text, fontWeight: 600 }}>{r.dept}</span>
+                            <span style={{ color: C.textLight }}> · </span>
+                            {String(r.cases || "").split("\n")[0].replace(/^[•\-\s]+/, "").slice(0, 60)}
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
+
+            {/* 載入更多 */}
+            {historyVisibleCount < totalWeeks && (
+              <div style={{ marginTop: 14, textAlign: "center" }}>
+                <Button variant="secondary" onClick={() => setHistoryVisibleCount(historyVisibleCount + 12)}>
+                  載入更多（還有 {totalWeeks - historyVisibleCount} 週）
+                </Button>
+              </div>
+            )}
+            {historyVisibleCount >= totalWeeks && totalWeeks > 8 && (
+              <div style={{ marginTop: 14, textAlign: "center" }}>
+                <Button variant="ghost" onClick={() => setHistoryVisibleCount(8)}>
+                  收合至最近 8 週
+                </Button>
+              </div>
+            )}
           </div>
         );
       })()}
@@ -8081,7 +8170,7 @@ function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS
 
   const { filteredReports, filteredHandoffs } = useMemo(() => {
     if (timeRange === "all") return { filteredReports: reports, filteredHandoffs: handoffs };
-    const weeksMap = { "1w": 1, "4w": 4, "8w": 8 };
+    const weeksMap = { "1w": 1, "4w": 4, "8w": 8, "12w": 12, "26w": 26, "52w": 52 };
     const cutoff = new Date(NOW);
     cutoff.setDate(cutoff.getDate() - (weeksMap[timeRange] || 4) * 7);
     const fr = reports.filter((r) => {
@@ -8123,14 +8212,17 @@ function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS
         tag="ORGANIZATION ANALYTICS"
         title="組織分析"
         subtitle={`部門互動網絡 + 趨勢預警 · 統計範圍：${
-          timeRange === "1w" ? "本週" : timeRange === "4w" ? "近 4 週" : timeRange === "8w" ? "近 8 週" : "全部歷史"
+          { "1w": "本週", "4w": "近 4 週", "8w": "近 8 週", "12w": "近 3 個月", "26w": "近半年", "52w": "近 1 年", "all": "全部歷史" }[timeRange] || timeRange
         } · 共 ${filteredReports.length} 份週報、${filteredHandoffs.length} 筆交接`}
         action={
-          <div style={{ display: "flex", border: "1px solid " + C.border, background: "white" }}>
+          <div style={{ display: "flex", border: "1px solid " + C.border, background: "white", flexWrap: "wrap" }}>
             {[
               { k: "1w", label: "本週" },
               { k: "4w", label: "近 4 週" },
               { k: "8w", label: "近 8 週" },
+              { k: "12w", label: "3 個月" },
+              { k: "26w", label: "半年" },
+              { k: "52w", label: "1 年" },
               { k: "all", label: "全部" },
             ].map((opt, i) => (
               <button
