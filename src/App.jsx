@@ -5696,6 +5696,13 @@ function Handoff({ handoffs, setHandoffs, focusId, departments = SEED_DEPARTMENT
     setMode("list");
   };
 
+  const deleteHandoff = (handoff) => {
+    if (!window.confirm(`確認刪除交接單「${handoff.title}」？\n刪除後無法復原。`)) return;
+    setHandoffs(handoffs.filter((h) => h.id !== handoff.id));
+    setMode("list");
+    setCurrentId(null);
+  };
+
   const current = handoffs.find((h) => h.id === currentId);
 
   const inputStyle = {
@@ -5892,15 +5899,20 @@ function Handoff({ handoffs, setHandoffs, focusId, departments = SEED_DEPARTMENT
             </div>
           </div>
 
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 12, borderTop: "1px solid " + C.borderLight }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 12, borderTop: "1px solid " + C.borderLight, gap: 12, flexWrap: "wrap" }}>
             <div style={{ fontSize: 12, color: C.textMid }}>
               交接人:{current.sender} · 接手人:<strong style={{ color: C.text }}>{current.receiver}</strong>
             </div>
-            {current.status === "待簽收" && (
-              <Button variant="success" icon={Check} onClick={() => signOff(current.id)}>
-                簽收確認
+            <div style={{ display: "flex", gap: 8 }}>
+              <Button variant="secondary" onClick={() => deleteHandoff(current)}>
+                🗑 刪除
               </Button>
-            )}
+              {current.status === "待簽收" && (
+                <Button variant="success" icon={Check} onClick={() => signOff(current.id)}>
+                  簽收確認
+                </Button>
+              )}
+            </div>
           </div>
         </Card>
       </div>
@@ -8403,30 +8415,48 @@ function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS
               const inEdges = network.edges.filter((e) => e.to === selectedDept).sort((a, b) => b.weight - a.weight);
               const total = stat.outgoing + stat.incoming;
               const tone = total >= 8 ? "danger" : total >= 4 ? "warn" : "teal";
+
+              // 解析交接單：從該部門出去 / 進來該部門
+              const deptObj = departments.find((d) => d.name === selectedDept);
+              const deptAliases = [selectedDept, deptObj?.shortName].filter(Boolean);
+              const outHandoffs = filteredHandoffs.filter((h) => deptAliases.includes(h.from)).slice(0, 5);
+              const inHandoffs = filteredHandoffs.filter((h) => deptAliases.includes(h.to)).slice(0, 5);
+
+              // 該部門最近的週報關鍵字 (案件)
+              const deptReports = filteredReports
+                .filter((r) => r.dept === selectedDept)
+                .sort((a, b) => String(b.week).localeCompare(String(a.week)))
+                .slice(0, 5);
+
+              const statusColor = (s) =>
+                s === "已簽收" ? C.success : s === "待簽收" ? C.warn : C.accent;
+
               return (
                 <div style={{
                   marginTop: 12,
-                  padding: "14px 16px",
+                  padding: "16px 18px",
                   background: C.purpleLight,
                   borderRadius: 2,
                   border: "1px solid " + C.purple + "40",
                   animation: "fadeIn 0.15s ease-out",
                 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: "#3C3489" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: C.purple }}>
                       {selectedDept} · 協作詳情
                     </div>
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                       <Pill tone={tone}>互動共 {total} 次</Pill>
                       <span
                         onClick={() => setSelectedDept(null)}
-                        style={{ cursor: "pointer", color: C.textLight, fontSize: 12, marginLeft: 4 }}
+                        style={{ cursor: "pointer", color: C.textLight, fontSize: 14, marginLeft: 4 }}
                       >✕</span>
                     </div>
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+
+                  {/* 互動次數摘要 */}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
                     <div>
-                      <div style={{ fontSize: 11, color: "#5A5090", fontWeight: 600, marginBottom: 6 }}>
+                      <div style={{ fontSize: 11, color: C.purple, fontWeight: 600, marginBottom: 6 }}>
                         ↑ 主動請求協助（{stat.outgoing} 次）
                       </div>
                       {outEdges.length === 0 ? (
@@ -8434,8 +8464,7 @@ function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS
                       ) : outEdges.map((e, i) => (
                         <div key={i} style={{
                           display: "flex", justifyContent: "space-between",
-                          padding: "5px 8px", background: "white", borderRadius: 2,
-                          marginBottom: 4, fontSize: 12,
+                          padding: "5px 8px", background: "white", marginBottom: 4, fontSize: 12,
                         }}>
                           <span>→ {e.to}</span>
                           <Pill tone="purple">{e.weight} 次</Pill>
@@ -8443,7 +8472,7 @@ function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS
                       ))}
                     </div>
                     <div>
-                      <div style={{ fontSize: 11, color: "#5A5090", fontWeight: 600, marginBottom: 6 }}>
+                      <div style={{ fontSize: 11, color: C.purple, fontWeight: 600, marginBottom: 6 }}>
                         ↓ 被其他部門請求（{stat.incoming} 次）
                       </div>
                       {inEdges.length === 0 ? (
@@ -8451,8 +8480,7 @@ function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS
                       ) : inEdges.map((e, i) => (
                         <div key={i} style={{
                           display: "flex", justifyContent: "space-between",
-                          padding: "5px 8px", background: "white", borderRadius: 2,
-                          marginBottom: 4, fontSize: 12,
+                          padding: "5px 8px", background: "white", marginBottom: 4, fontSize: 12,
                         }}>
                           <span>← {e.from}</span>
                           <Pill tone="teal">{e.weight} 次</Pill>
@@ -8460,8 +8488,78 @@ function OrgAnalytics({ reports, activityHistory, departments = SEED_DEPARTMENTS
                       ))}
                     </div>
                   </div>
+
+                  {/* 實際交接單清單 */}
+                  {(outHandoffs.length > 0 || inHandoffs.length > 0) && (
+                    <div style={{ marginBottom: 14, paddingTop: 12, borderTop: "1px solid " + C.purple + "30" }}>
+                      <div style={{ fontSize: 11, color: C.purple, fontWeight: 600, marginBottom: 8 }}>
+                        📁 相關交接單
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                        {outHandoffs.map((h) => (
+                          <div key={"out-" + h.id} style={{
+                            display: "flex", alignItems: "center", gap: 8,
+                            padding: "6px 10px", background: "white", fontSize: 12,
+                            borderLeft: "3px solid " + statusColor(h.status),
+                          }}>
+                            <Pill tone="blue">→ {h.to}</Pill>
+                            <span style={{ flex: 1, fontWeight: 600 }}>{h.title}</span>
+                            <span style={{ fontSize: 10, color: C.textLight }}>{h.createdAt}</span>
+                            <Pill tone={h.status === "已簽收" ? "teal" : "warn"}>{h.status}</Pill>
+                          </div>
+                        ))}
+                        {inHandoffs.map((h) => (
+                          <div key={"in-" + h.id} style={{
+                            display: "flex", alignItems: "center", gap: 8,
+                            padding: "6px 10px", background: "white", fontSize: 12,
+                            borderLeft: "3px solid " + statusColor(h.status),
+                          }}>
+                            <Pill tone="teal">← {h.from}</Pill>
+                            <span style={{ flex: 1, fontWeight: 600 }}>{h.title}</span>
+                            <span style={{ fontSize: 10, color: C.textLight }}>{h.createdAt}</span>
+                            <Pill tone={h.status === "已簽收" ? "teal" : "warn"}>{h.status}</Pill>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 該部門最近案件 (從週報) */}
+                  {deptReports.length > 0 && (
+                    <div style={{ marginBottom: 10, paddingTop: 12, borderTop: "1px solid " + C.purple + "30" }}>
+                      <div style={{ fontSize: 11, color: C.purple, fontWeight: 600, marginBottom: 8 }}>
+                        📝 最近週報摘要
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                        {deptReports.map((r) => (
+                          <div key={r.id} style={{
+                            padding: "6px 10px", background: "white", fontSize: 12,
+                            borderLeft: "3px solid " + C.accent,
+                          }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                              <span style={{ fontWeight: 600, fontSize: 11 }}>{displayWeek(r.week)} · {r.author}</span>
+                              <div style={{ display: "flex", gap: 3 }}>
+                                {(r.keywords || []).slice(0, 3).map((kw) => (
+                                  <Pill key={kw} tone="purple">{kw}</Pill>
+                                ))}
+                              </div>
+                            </div>
+                            <div style={{ fontSize: 11, color: C.textMid, lineHeight: 1.5 }}>
+                              {String(r.cases || "").split("\n")[0].replace(/^[•\-\s]+/, "").slice(0, 70)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 解讀 */}
                   {outEdges.length > 0 && (
-                    <div style={{ marginTop: 10, fontSize: 11, color: "#4A3F70", lineHeight: 1.7 }}>
+                    <div style={{
+                      marginTop: 10, padding: "8px 10px",
+                      background: "rgba(0,59,113,0.08)",
+                      fontSize: 11, color: C.purple, lineHeight: 1.7,
+                    }}>
                       💡 最常請求協助的對象為 <strong>{outEdges[0].to}</strong>（{outEdges[0].weight} 次），
                       {inEdges.length > 0 ? `最常被 ${inEdges[0].from} 請求（${inEdges[0].weight} 次）。` : "尚無部門主動請求本部門協助。"}
                     </div>
