@@ -1532,6 +1532,157 @@ const SEED_USERS = [
 ];
 
 // ============================================================
+// 歷史會議紀錄 (程序化產生 26 週的會議歷史)
+// ============================================================
+const SEED_MEETING_HISTORY = (() => {
+  const seedRandom = (seed) => {
+    let s = seed * 9301 + 49297;
+    return () => {
+      s = (s * 9301 + 49297) % 233280;
+      return s / 233280;
+    };
+  };
+  const pick = (arr, rnd) => arr[Math.floor(rnd() * arr.length)];
+
+  const meetingTemplates = [
+    {
+      title: "週會（管理層 × 三部門）",
+      schedule: "每週一 09:00",
+      audience: "董事長、COO、三部門主管",
+      icon: "📅",
+      type: "weekly",
+      topics: ["三部門進度同步", "本週重要議題討論", "卡點處理進度", "資源配置調整", "下週重點工作"],
+    },
+    {
+      title: "投資委員會",
+      schedule: "每月第二週四 14:00",
+      audience: "董事長、COO、投研主管、外部顧問",
+      icon: "💼",
+      type: "investment",
+      topics: ["投資案件審議", "估值區間決議", "投資條件書核准", "投組曝險檢討", "Q4 投資策略"],
+    },
+    {
+      title: "業務檢討會議",
+      schedule: "每月第一週三 10:00",
+      audience: "COO、業開主管、業務團隊",
+      icon: "📊",
+      type: "biz",
+      topics: ["客戶 Pipeline 檢視", "簽約進度追蹤", "競爭情報分享", "業務目標進度", "客戶關係維護"],
+    },
+    {
+      title: "資產管理檢討",
+      schedule: "每月最後週五 15:00",
+      audience: "CFO、資管主管、風控專員",
+      icon: "📈",
+      type: "asset",
+      topics: ["投組季報進度", "風險指標審視", "法遵案件進度", "現金流預估", "稅務規劃"],
+    },
+    {
+      title: "季度策略會議",
+      schedule: "每季第一週",
+      audience: "全體主管",
+      icon: "🎯",
+      type: "quarterly",
+      topics: ["上季成果回顧", "本季 OKR 設定", "策略方向校準", "資源重新配置", "重大決議"],
+    },
+    {
+      title: "1-on-1 主管會談",
+      schedule: "每月排定",
+      audience: "董事長 × 部門主管",
+      icon: "💬",
+      type: "oneonone",
+      topics: ["個人發展規劃", "團隊狀況回顧", "工作挑戰討論", "後續支援需求"],
+    },
+  ];
+
+  const out = [];
+  let id = 1;
+  // 從本週往回推 26 週，每週可能 0-2 場會議
+  for (let weeksAgo = 1; weeksAgo <= 26; weeksAgo++) {
+    const weekDate = new Date();
+    weekDate.setDate(weekDate.getDate() - weeksAgo * 7);
+    const rnd = seedRandom(weeksAgo * 137 + 11);
+
+    // 每週固定有週會 (週一)
+    const weeklyTpl = meetingTemplates[0];
+    const monday = new Date(weekDate);
+    monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+    const weeklyAgenda = pick([3, 4, 4, 5], rnd);
+    out.push({
+      id: "mh-" + (id++),
+      title: weeklyTpl.title,
+      schedule: weeklyTpl.schedule,
+      audience: weeklyTpl.audience,
+      icon: weeklyTpl.icon,
+      archivedAt: monday.toISOString().slice(0, 10),
+      archivedBy: "system@chuanlien.com",
+      agendaSnapshot: Array.from({ length: weeklyAgenda }).map((_, i) => ({
+        id: `a${i + 1}`,
+        title: pick(weeklyTpl.topics, rnd),
+        priority: i === 0 ? "high" : i === 1 ? "high" : "medium",
+        notes: rnd() > 0.5 ? "已決議:後續由各部門主管追蹤" : "持續追蹤,下週會議報告",
+      })),
+      textSnapshot: `${weeklyTpl.title}\n日期：${monday.toISOString().slice(0, 10)}\n出席：${weeklyTpl.audience}\n\n議程：\n${Array.from({ length: weeklyAgenda }).map((_, i) => `${i + 1}. ${pick(weeklyTpl.topics, rnd)}`).join("\n")}`,
+    });
+
+    // 月會 (約 25% 機率出現)
+    if (rnd() > 0.75) {
+      const monthlyTpl = pick([meetingTemplates[1], meetingTemplates[2], meetingTemplates[3]], rnd);
+      const dayOffset = Math.floor(rnd() * 5);
+      const monthlyDate = new Date(weekDate);
+      monthlyDate.setDate(monthlyDate.getDate() + dayOffset);
+      const monthlyAgenda = pick([4, 5, 5, 6], rnd);
+      out.push({
+        id: "mh-" + (id++),
+        title: monthlyTpl.title,
+        schedule: monthlyTpl.schedule,
+        audience: monthlyTpl.audience,
+        icon: monthlyTpl.icon,
+        archivedAt: monthlyDate.toISOString().slice(0, 10),
+        archivedBy: "system@chuanlien.com",
+        agendaSnapshot: Array.from({ length: monthlyAgenda }).map((_, i) => ({
+          id: `a${i + 1}`,
+          title: pick(monthlyTpl.topics, rnd),
+          priority: i < 2 ? "high" : "medium",
+          notes: pick([
+            "已通過,執行單位:相關部門",
+            "需補件後再議",
+            "決議延至下次討論",
+            "達成共識,進入執行階段",
+            "已建立追蹤機制",
+          ], rnd),
+        })),
+        textSnapshot: `${monthlyTpl.title} · ${monthlyDate.toISOString().slice(0, 10)}\n${monthlyTpl.topics.slice(0, 3).join(" / ")}`,
+      });
+    }
+
+    // 季度會議 (約 8% 機率，模擬每 12 週一次)
+    if (weeksAgo % 13 === 1 && rnd() > 0.3) {
+      const qTpl = meetingTemplates[4];
+      const qAgenda = 6;
+      out.push({
+        id: "mh-" + (id++),
+        title: qTpl.title + ` (${Math.ceil(weekDate.getMonth() / 3) || 4}Q ${weekDate.getFullYear()})`,
+        schedule: qTpl.schedule,
+        audience: qTpl.audience,
+        icon: qTpl.icon,
+        archivedAt: weekDate.toISOString().slice(0, 10),
+        archivedBy: "system@chuanlien.com",
+        agendaSnapshot: qTpl.topics.map((topic, i) => ({
+          id: `a${i + 1}`,
+          title: topic,
+          priority: i < 3 ? "high" : "medium",
+          notes: "季度策略決議,已記錄於董事會議事錄",
+        })),
+        textSnapshot: `${qTpl.title}\n${qTpl.topics.join("\n")}`,
+      });
+    }
+  }
+
+  return out;
+})();
+
+// ============================================================
 // 統計分析模組
 // ============================================================
 const stats = {
@@ -9860,7 +10011,7 @@ export default function App() {
           fetchDocumentCollection("departments", SEED_DEPARTMENTS),
           fetchDocumentCollection("users", SEED_USERS),
           fetchDocumentCollection("customMeetings", []),
-          fetchDocumentCollection("meetingHistory", []),
+          fetchDocumentCollection("meetingHistory", SEED_MEETING_HISTORY),
           fetchDocumentCollection("auditLogs", []),
           fetchDocumentCollection("history", SEED_HISTORY),
         ]);
@@ -9876,13 +10027,14 @@ export default function App() {
         const needReset = hasOldWeekFormat || reportsTooFew;
         const finalReports = needReset ? SEED_REPORTS : r;
         const finalHandoffs = (handoffsTooFew || handoffsHasShortName) ? SEED_HANDOFFS : h;
+        const finalMeetingHistory = (mh || []).length < 10 ? SEED_MEETING_HISTORY : mh;
         const finalBlockers = needReset ? SEED_BLOCKERS : (b.length ? b : [...SEED_BLOCKERS, ...createLegacyBlockersFromReports(finalReports)]);
         reportsSnapshotRef.current = finalReports;
         handoffsSnapshotRef.current = finalHandoffs;
         decisionsSnapshotRef.current = d;
         blockersSnapshotRef.current = finalBlockers;
         customMeetingsSnapshotRef.current = cm;
-        meetingHistorySnapshotRef.current = mh;
+        meetingHistorySnapshotRef.current = finalMeetingHistory;
         employeesSnapshotRef.current = emp;
         departmentsSnapshotRef.current = deptRows;
         usersSnapshotRef.current = userRows;
@@ -9895,7 +10047,7 @@ export default function App() {
         setDepartments(deptRows);
         setUsers(userRows);
         setCustomMeetings(cm);
-        setMeetingHistory(mh);
+        setMeetingHistory(finalMeetingHistory);
         setAuditLogs(logs);
         // 強制同步：偵測舊格式（缺 bh 前綴 / 含「第 N 週」字樣），整批換成最新 SEED
         const hasNewFormat = hist.some((h) => String(h.id || "").startsWith("bh"));
