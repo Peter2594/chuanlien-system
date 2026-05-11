@@ -3120,27 +3120,27 @@ function generateMeetingAgenda(meetingType, reports, handoffs, decisions, blocke
 // ===== 主要樣式常數(日系商業風 v3) =====
 // 設計理念:米白底 + 鼠灰主色 + 朱紅強調 + 抹茶綠/古銅金/赤茶系統色
 // 參考:無印良品 × 三井住友銀行 × Notion 日文版的精品商業感
-// MUFG 風格配色：純白底、紅黑主軸、銳利克制
+// 私人銀行風配色：墨藍主軸、暖白米底、深紅點睛、克制權威
 const C = {
-  bg: "#F5F5F5",             // 主背景:極淺灰(MUFG 風)
+  bg: "#F6F4EE",             // 主背景:溫潤米白(避免冰冷灰)
   surface: "#FFFFFF",        // 卡片底
-  border: "#D6D6D6",         // 邊框:中性灰
-  borderLight: "#EAEAEA",
-  text: "#1A1A1A",           // 主文字:近黑
-  textMid: "#555555",
-  textLight: "#888888",
-  accent: "#C52A39",         // MUFG 主色:企業紅
-  accentLight: "#FBE7E9",
-  highlight: "#C52A39",      // 強調色與主色一致(統一視覺)
-  highlightLight: "#FBE7E9",
-  success: "#1F6E3A",        // 深綠
-  successLight: "#E3F0E7",
-  warn: "#B47800",           // 琥珀金
-  warnLight: "#FBF1D9",
-  danger: "#A41E22",         // 深紅
-  dangerLight: "#F8DCDE",
-  purple: "#003B71",         // 深企業藍(取代紫,搭配紅黑更專業)
-  purpleLight: "#E1E9F2",
+  border: "#D8D2C4",         // 邊框:暖灰
+  borderLight: "#ECE7DB",
+  text: "#1C1F2A",           // 主文字:墨藍黑
+  textMid: "#5A5E68",        // 中性文字:暖灰
+  textLight: "#9A968D",      // 輔助文字:淡暖灰
+  accent: "#1F2A3D",         // 主色:深墨藍(取代刺眼紅,作大面積使用)
+  accentLight: "#E5E8EE",
+  highlight: "#9F2D34",      // 點睛色:深酒紅(用在 tag/重點,克制使用)
+  highlightLight: "#F2E1E3",
+  success: "#2C5B43",        // 深松綠
+  successLight: "#E3ECE6",
+  warn: "#A47432",           // 古銅金
+  warnLight: "#F4ECD9",
+  danger: "#8B1F26",         // 血紅
+  dangerLight: "#F0DDDE",
+  purple: "#3B4A66",          // 中墨藍(取代深企業藍)
+  purpleLight: "#E4E7EE",
 };
 
 // 風險等級對應顏色
@@ -3171,14 +3171,14 @@ const Pill = ({ children, tone = "neutral", size = "sm" }) => {
       style={{
         display: "inline-flex",
         alignItems: "center",
-        padding: size === "sm" ? "2px 8px" : "4px 10px",
-        borderRadius: 2,
-        fontSize: size === "sm" ? 11 : 12,
+        padding: size === "sm" ? "2px 9px" : "4px 11px",
+        borderRadius: 3,
+        fontSize: size === "sm" ? 10 : 11,
         fontWeight: 500,
         background: t.bg,
         color: t.color,
         whiteSpace: "nowrap",
-        letterSpacing: "0.02em",
+        letterSpacing: "0.05em",
       }}
     >
       {children}
@@ -3240,11 +3240,11 @@ const Button = ({ children, variant = "secondary", onClick, disabled, icon: Icon
       disabled={disabled}
       style={{
         ...s,
-        padding: size === "sm" ? "6px 14px" : "9px 20px",
-        borderRadius: 2,
+        padding: size === "sm" ? "7px 16px" : "10px 22px",
+        borderRadius: 3,
         fontSize: size === "sm" ? 12 : 13,
-        fontWeight: 600,
-        letterSpacing: "0.03em",
+        fontWeight: 500,
+        letterSpacing: "0.06em",
         cursor: disabled ? "not-allowed" : "pointer",
         opacity: disabled ? 0.5 : 1,
         display: "inline-flex",
@@ -3282,10 +3282,11 @@ const Modal = ({ open, onClose, title, subtitle, children, maxWidth = 560 }) => 
         onClick={(e) => e.stopPropagation()}
         style={{
           background: C.surface,
-          borderRadius: 2,
+          borderRadius: 3,
           width: "100%",
           maxWidth,
           maxHeight: "85vh",
+          boxShadow: "0 24px 48px rgba(28, 31, 42, 0.18), 0 0 0 1px rgba(28, 31, 42, 0.04)",
           display: "flex",
           flexDirection: "column",
           boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
@@ -3337,8 +3338,9 @@ const Card = ({ children, style, ...rest }) => (
   <div
     style={{
       background: C.surface,
-      border: "1px solid " + C.border,
-      borderRadius: 2,
+      border: "1px solid " + C.borderLight,
+      borderRadius: 3,
+      boxShadow: "0 1px 2px rgba(28, 31, 42, 0.04), 0 0 0 1px rgba(28, 31, 42, 0.02)",
       ...style,
     }}
     {...rest}
@@ -3347,35 +3349,42 @@ const Card = ({ children, style, ...rest }) => (
   </div>
 );
 
-// 統一頁面標題 (MUFG 風)
+// 統一頁面標題 (私人銀行風)
 const PageHeader = ({ tag, title, subtitle, action }) => (
   <div className="page-header" style={{
     display: "flex",
     justifyContent: "space-between",
     alignItems: "flex-end",
-    marginBottom: 22,
-    paddingBottom: 14,
-    borderBottom: "2px solid " + C.text,
+    marginBottom: 28,
+    paddingBottom: 18,
+    borderBottom: "1px solid " + C.border,
     gap: 16,
     flexWrap: "wrap",
   }}>
     <div>
       {tag && (
         <div style={{
-          fontSize: 11,
-          color: C.accent,
-          letterSpacing: "0.2em",
-          fontWeight: 700,
-          marginBottom: 6,
+          fontSize: 10,
+          color: C.highlight,
+          letterSpacing: "0.25em",
+          fontWeight: 600,
+          marginBottom: 10,
         }}>
           {tag}
         </div>
       )}
-      <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: "0.02em", color: C.text }}>
+      <h1 style={{
+        fontSize: 26,
+        fontWeight: 600,
+        margin: 0,
+        letterSpacing: "-0.005em",
+        color: C.text,
+        lineHeight: 1.25,
+      }}>
         {title}
       </h1>
       {subtitle && (
-        <div style={{ fontSize: 12, color: C.textMid, marginTop: 6, lineHeight: 1.6 }}>
+        <div style={{ fontSize: 12, color: C.textMid, marginTop: 8, lineHeight: 1.7 }}>
           {subtitle}
         </div>
       )}
@@ -3388,27 +3397,29 @@ const SectionTitle = ({ children, color = C.accent, hint }) => (
   <div
     style={{
       display: "flex",
-      alignItems: "center",
-      gap: 10,
+      alignItems: "baseline",
+      gap: 12,
       fontSize: 14,
-      fontWeight: 700,
-      marginBottom: 14,
+      fontWeight: 600,
+      marginBottom: 16,
       color: C.text,
-      paddingBottom: 8,
+      paddingBottom: 10,
       borderBottom: "1px solid " + C.borderLight,
+      letterSpacing: "0.02em",
     }}
   >
     <span
       style={{
-        width: 4,
-        height: 16,
+        width: 2,
+        height: 14,
         background: color,
         borderRadius: 0,
+        alignSelf: "center",
       }}
     />
     {children}
     {hint && (
-      <span style={{ fontSize: 11, color: C.textLight, fontWeight: 400, marginLeft: "auto" }}>
+      <span style={{ fontSize: 11, color: C.textLight, fontWeight: 400, marginLeft: "auto", letterSpacing: "0.02em" }}>
         {hint}
       </span>
     )}
@@ -5657,7 +5668,8 @@ function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userPro
 
       {/* 歷史週報瀏覽 */}
       {(() => {
-        const currentWeek = getLatestWeek(reports);
+        // 永遠以「今天所在的真實週次」為基準，不依賴 reports 內容
+        const currentWeek = CURRENT_WEEK_LABEL;
         const grouped = {};
         reports.forEach((r) => {
           if (r.week === currentWeek) return;
@@ -5708,7 +5720,10 @@ function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userPro
 
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               {visibleWeeks.map((wk, idx) => {
-                const label = idx === 0 ? "上週" : idx === 1 ? "上上週" : `${idx + 1} 週前`;
+                // 用今天到該週的實際天數來判斷「N 週前」，而非依排序索引
+                const wkDate = parseDate(wk);
+                const weeksAgo = Math.max(1, Math.round((NOW - wkDate) / (86400000 * 7)));
+                const label = weeksAgo === 1 ? "上週" : weeksAgo === 2 ? "上上週" : `${weeksAgo} 週前`;
                 const isExpanded = expandedWeek === wk;
                 return (
                   <div key={wk} style={{
@@ -6907,6 +6922,7 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
 function BlockerAnalytics({ blockerHistory, blockers = [], reports = [], history = [] }) {
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [expandedCaseId, setExpandedCaseId] = useState(null);
+  const [expandedBlockerId, setExpandedBlockerId] = useState(null);
 
   // 比對歷史案件和卡點類別
   const getRelatedCases = (categoryKey) => {
@@ -7113,33 +7129,142 @@ function BlockerAnalytics({ blockerHistory, blockers = [], reports = [], history
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {activeBlockers.map((a, i) => {
               const color = a.hasData ? riskLevelColor(a.level) : { fg: "#7A4900", bg: C.warnLight };
+              const blockerId = a.blocker?.id || `idx-${i}`;
+              const isExpanded = expandedBlockerId === blockerId;
+              const b = a.blocker || {};
               return (
-                <div key={i} style={{
-                  padding: "12px 14px",
+                <div key={blockerId} style={{
                   background: color.bg,
-                  border: "1px solid " + color.fg + "30",
+                  border: "1px solid " + color.fg + (isExpanded ? "60" : "30"),
                   borderRadius: 2,
+                  transition: "border 0.15s",
                 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: color.fg }}>
-                      {a.categoryInfo.label}:{(a.blocker?.title || a.originalText).slice(0, 30)}{(a.blocker?.title || a.originalText).length > 30 ? "..." : ""}
+                  {/* 列頭 - 可點 */}
+                  <div
+                    onClick={() => setExpandedBlockerId(isExpanded ? null : blockerId)}
+                    style={{
+                      padding: "12px 14px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: color.fg, flex: 1 }}>
+                        {a.categoryInfo.label}：{(b.title || a.originalText).slice(0, 30)}{(b.title || a.originalText).length > 30 ? "..." : ""}
+                      </div>
+                      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <Pill tone={a.level === "critical" ? "danger" : a.level === "high" ? "warn" : "teal"}>
+                          {a.levelLabel}
+                        </Pill>
+                        <ChevronRight size={14} color={color.fg} style={{
+                          transform: isExpanded ? "rotate(90deg)" : "none",
+                          transition: "transform 0.2s",
+                        }} />
+                      </div>
                     </div>
-                    <Pill tone={a.level === "critical" ? "danger" : a.level === "high" ? "warn" : "teal"}>
-                      {a.levelLabel}
-                    </Pill>
+                    <div style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(4, 1fr)",
+                      gap: 8,
+                      fontSize: 11,
+                      color: color.fg,
+                    }}>
+                      <div>已卡 <strong>{a.currentDays}</strong> 天</div>
+                      <div>{a.basisLabel}</div>
+                      <div>{a.hasData ? <>P75 / P90 <strong>{a.p75.toFixed(1)} / {a.p90.toFixed(1)}</strong></> : "樣本不足"}</div>
+                      <div>{a.percentile !== null ? <>第 <strong>{a.percentile}%</strong> 百分位</> : "僅 SLA 提醒"}</div>
+                    </div>
                   </div>
-                  <div style={{
-                    display: "grid",
-                    gridTemplateColumns: "repeat(4, 1fr)",
-                    gap: 8,
-                    fontSize: 11,
-                    color: color.fg,
-                  }}>
-                    <div>已卡 <strong>{a.currentDays}</strong> 天</div>
-                    <div>{a.basisLabel}</div>
-                    <div>{a.hasData ? <>P75 / P90 <strong>{a.p75.toFixed(1)} / {a.p90.toFixed(1)}</strong></> : "樣本不足"}</div>
-                    <div>{a.percentile !== null ? <>第 <strong>{a.percentile}%</strong> 百分位</> : "僅 SLA 提醒"}</div>
-                  </div>
+
+                  {/* 展開詳情 */}
+                  {isExpanded && (
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        padding: "12px 14px 14px",
+                        borderTop: "1px solid " + color.fg + "20",
+                        background: "rgba(255,255,255,0.5)",
+                      }}
+                    >
+                      {/* 完整標題 + 描述 */}
+                      {b.title && (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: 10, color: C.textMid, fontWeight: 600, marginBottom: 3, letterSpacing: "0.05em" }}>標題</div>
+                          <div style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>{b.title}</div>
+                        </div>
+                      )}
+                      {b.description && (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: 10, color: C.textMid, fontWeight: 600, marginBottom: 3, letterSpacing: "0.05em" }}>描述</div>
+                          <div style={{ fontSize: 12, color: C.text, lineHeight: 1.7, padding: "8px 10px", background: "white" }}>
+                            {b.description}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* meta info grid */}
+                      <div style={{
+                        display: "grid",
+                        gridTemplateColumns: "repeat(2, 1fr)",
+                        gap: 8,
+                        marginBottom: 10,
+                      }}>
+                        {b.dept && (
+                          <div style={{ padding: "6px 10px", background: "white" }}>
+                            <div style={{ fontSize: 10, color: C.textMid }}>負責部門</div>
+                            <div style={{ fontSize: 12, fontWeight: 600 }}>{b.dept}</div>
+                          </div>
+                        )}
+                        {b.owner && (
+                          <div style={{ padding: "6px 10px", background: "white" }}>
+                            <div style={{ fontSize: 10, color: C.textMid }}>負責人</div>
+                            <div style={{ fontSize: 12, fontWeight: 600 }}>{b.owner}</div>
+                          </div>
+                        )}
+                        {b.caseId && (
+                          <div style={{ padding: "6px 10px", background: "white" }}>
+                            <div style={{ fontSize: 10, color: C.textMid }}>關聯案件</div>
+                            <div style={{ fontSize: 12, fontWeight: 600 }}>{b.caseId}</div>
+                          </div>
+                        )}
+                        {b.createdAt && (
+                          <div style={{ padding: "6px 10px", background: "white" }}>
+                            <div style={{ fontSize: 10, color: C.textMid }}>建立時間</div>
+                            <div style={{ fontSize: 12, fontWeight: 600 }}>{String(b.createdAt).slice(0, 10)}</div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* 相關部門 */}
+                      {Array.isArray(b.relatedDepartments) && b.relatedDepartments.length > 0 && (
+                        <div style={{ marginBottom: 10 }}>
+                          <div style={{ fontSize: 10, color: C.textMid, fontWeight: 600, marginBottom: 4, letterSpacing: "0.05em" }}>相關部門</div>
+                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                            {b.relatedDepartments.map((d) => <Pill key={d} tone="blue">{d}</Pill>)}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* 風險分位數說明 */}
+                      <div style={{
+                        padding: "10px 12px",
+                        background: color.fg + "12",
+                        fontSize: 11,
+                        color: color.fg,
+                        lineHeight: 1.7,
+                      }}>
+                        <strong>📊 風險解讀：</strong>
+                        {a.hasData ? (
+                          <>本案已卡 <strong>{a.currentDays}</strong> 天，超過歷史同類「{a.categoryInfo.label}」案件 <strong>{a.percentile}%</strong> 的解決時間。
+                          {a.level === "critical" && " ⚠️ 已達極高風險（P95+），建議立刻召開協調會議。"}
+                          {a.level === "high" && " 建議在本週內安排升級處理。"}
+                          {a.level === "medium" && " 進入關注區，請追蹤後續進度。"}
+                          {a.level === "normal" && " 仍在正常處理時程內。"}</>
+                        ) : (
+                          <>歷史樣本不足，採用 SLA 預設提醒。建議仍照常追蹤處理進度。</>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -10716,7 +10841,7 @@ export default function App() {
   return (
     <div
       style={{
-        fontFamily: '"Noto Sans TC", "PingFang TC", "Microsoft JhengHei", -apple-system, sans-serif',
+        fontFamily: '"Inter", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", -apple-system, sans-serif',
         background: C.bg,
         color: C.text,
         minHeight: "100vh",
@@ -10724,16 +10849,16 @@ export default function App() {
         flexDirection: "column",
       }}
     >
-      {/* ===== 頂部紅色品牌條 (4px) ===== */}
-      <div style={{ height: 4, background: C.accent }} />
+      {/* ===== 頂部極細品牌條 (2px,墨藍) ===== */}
+      <div style={{ height: 2, background: C.accent }} />
 
       {/* ===== 主 Header：Logo + 公司名 + 使用者區 ===== */}
       <div style={{
         background: "white",
-        padding: "18px 36px",
+        padding: "22px 40px",
         display: "flex",
         alignItems: "center",
-        gap: 20,
+        gap: 22,
         borderBottom: "1px solid " + C.borderLight,
       }}>
         <div style={{
@@ -10743,18 +10868,20 @@ export default function App() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          fontWeight: 700,
-          fontSize: 20,
+          fontWeight: 600,
+          fontSize: 19,
           flexShrink: 0,
+          letterSpacing: "0",
+          fontFamily: '"Noto Serif TC", serif',
         }}>
           串
         </div>
-        <div style={{ flexShrink: 0 }}>
-          <div style={{ fontSize: 18, fontWeight: 700, color: C.text, letterSpacing: "0.01em", lineHeight: 1.2 }}>
+        <div style={{ flexShrink: 0, borderLeft: "1px solid " + C.borderLight, paddingLeft: 18, marginLeft: 4 }}>
+          <div style={{ fontSize: 17, fontWeight: 600, color: C.text, letterSpacing: "0.02em", lineHeight: 1.2 }}>
             串連股份有限公司
           </div>
-          <div style={{ fontSize: 10, color: C.textLight, letterSpacing: "0.2em", marginTop: 3, fontWeight: 500 }}>
-            MANAGEMENT DECISION SUPPORT
+          <div style={{ fontSize: 10, color: C.textLight, letterSpacing: "0.28em", marginTop: 4, fontWeight: 500 }}>
+            MANAGEMENT  DECISION  SUPPORT
           </div>
         </div>
 
@@ -10832,13 +10959,12 @@ export default function App() {
         </div>
       </div>
 
-      {/* ===== 白底導覽列：靠下紅色底線標示作用中 (MUFG 風) ===== */}
+      {/* ===== 導覽列：墨藍底線標示作用中 ===== */}
       <nav style={{
         background: "white",
         display: "flex",
-        padding: "0 24px",
+        padding: "0 32px",
         borderBottom: "1px solid " + C.border,
-        boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
       }}>
         {tabs.map((t) => {
           const Icon = t.icon;
@@ -10850,18 +10976,18 @@ export default function App() {
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 7,
-                padding: "14px 18px",
+                gap: 8,
+                padding: "16px 20px",
                 background: "transparent",
-                color: active ? C.accent : C.textMid,
+                color: active ? C.text : C.textMid,
                 border: "none",
-                borderBottom: active ? "3px solid " + C.accent : "3px solid transparent",
+                borderBottom: active ? "2px solid " + C.accent : "2px solid transparent",
                 fontSize: 13,
-                fontWeight: active ? 700 : 500,
+                fontWeight: active ? 600 : 500,
                 cursor: "pointer",
                 fontFamily: "inherit",
-                letterSpacing: "0.04em",
-                transition: "all 0.12s",
+                letterSpacing: "0.06em",
+                transition: "color 0.15s, border-color 0.15s",
                 marginBottom: -1,
               }}
               onMouseEnter={(e) => {

@@ -4,11 +4,22 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>串連股份有限公司 · 管理層決策輔助系統</title>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;600;700&family=Noto+Serif+TC:wght@500;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
     <style>
       * { box-sizing: border-box; }
       html, body, #root { margin: 0; padding: 0; height: 100%; }
-      body { font-family: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif; }
+      body {
+        font-family: "Inter", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", sans-serif;
+        font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
+        color: #1C1F2A;
+      }
+      h1, h2, h3, h4 {
+        font-family: "Noto Serif TC", "Inter", "Noto Sans TC", serif;
+        font-weight: 600;
+      }
 
       /* ========== Mobile Responsive (≤ 768px) ========== */
       @media (max-width: 768px) {
