@@ -117,13 +117,18 @@ function displayWeek(w) {
 const _SEED_BASE_DATE = new Date("2025-10-17T00:00:00");
 const _DATE_SHIFT_DAYS = Math.round((NOW - _SEED_BASE_DATE) / 86400000);
 
+// 只平移落在「原始 SEED 設計時間範圍」(2025-08 到 2026-02) 的日期
+// 避免動到程序化產生的、本來就以 NOW 為基準的日期
+const _SHIFT_WINDOW_START = new Date("2025-08-01T00:00:00").getTime();
+const _SHIFT_WINDOW_END = new Date("2026-02-01T00:00:00").getTime();
 function shiftDate(s) {
   if (!s || typeof s !== "string") return s;
-  // 匹配 "YYYY-MM-DD" 開頭的字串(含後綴時間)
   const m = s.match(/^(\d{4}-\d{2}-\d{2})(.*)$/);
   if (!m) return s;
   const d = new Date(m[1] + "T00:00:00");
   if (isNaN(d)) return s;
+  const t = d.getTime();
+  if (t < _SHIFT_WINDOW_START || t > _SHIFT_WINDOW_END) return s; // 不在範圍內就不動
   d.setDate(d.getDate() + _DATE_SHIFT_DAYS);
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
@@ -395,7 +400,7 @@ const SEED_REPORTS_HISTORICAL = (() => {
     const wkNum = getISOWeek(target);
     const wkLabel = formatWeekLabel(i);
     const submitTarget = new Date(target);
-    submitTarget.setDate(submitTarget.getDate() + 4); // 該週週五
+    submitTarget.setDate(submitTarget.getDate() + 6); // 該週週日
     const sd = submitTarget.toISOString().slice(0, 10);
 
     const rnd = seedRandom(wkNum * 137 + target.getFullYear());
@@ -459,45 +464,10 @@ const SEED_REPORTS_HISTORICAL = (() => {
   return data;
 })();
 
+// 本週週報故意不放任何資料：週日截止前不該有「本週」紀錄
+// 最近一筆是上週週報，在 SEED_REPORTS_HISTORICAL 已涵蓋
 const SEED_REPORTS = [
   ...SEED_REPORTS_HISTORICAL,
-  // 本週 - 詳細版
-  {
-    id: "r1",
-    dept: "投資研究部",
-    week: CURRENT_WEEK_LABEL,
-    author: "周世倫",
-    submittedAt: "2025-10-17 16:32",
-    cases: "• A 新創 Pre-A 輪盡職調查(主辦)\n• B 公司產業分析報告(2/3 完成)\n• C 標的二次訪談紀錄整理\n• F 教育科技標的初篩\n• 既有投資組合季度估值更新",
-    blockers: "A 新創財務資料尚未收齊,已兩週。創辦人提供之 2024 年度財報為簡化版,需正式版才能進行估值。已透過業開部聯繫兩次未果。",
-    needHelp: "請業開部協助聯繫 A 新創財務長,確認財報補件時程。需資管部協助評估 A 新創若引入新股東後的反稀釋條款風險。",
-    nextWeek: "完成 B 公司產業分析初稿、A 新創財務模型 v2、F 標的決議下週是否進入正式評估",
-    keywords: ["A 新創", "FinTech", "Pre-A", "盡調", "B 公司", "F 標的", "反稀釋"],
-  },
-  {
-    id: "r2",
-    dept: "業務開發部",
-    week: CURRENT_WEEK_LABEL,
-    author: "林聿平",
-    submittedAt: "2025-10-17 17:05",
-    cases: "• A 新創投資條件書草擬\n• Q4 新客戶開發(已接觸 7 家)\n• D 客戶 NDA 簽訂\n• G 公司初次接觸會議\n• 業界活動參訪規劃(11 月 FinTech Summit)",
-    blockers: "A 新創財務長行程難安排,本週已電話聯繫 4 次未通。D 客戶法務對 NDA 條款有 3 點異議,已轉給資管部審閱中。",
-    needHelp: "需管理層確認 Q4 募資節奏(目標 1.5 億 vs 2 億兩種規模差異)。需投研部加速 G 公司產業初評。",
-    nextWeek: "推進 A 新創簽約流程、完成 D 客戶 NDA 修訂版、與 G 公司董事會做 30 分鐘簡報",
-    keywords: ["A 新創", "Q4", "募資", "NDA", "D 客戶", "G 公司", "FinTech"],
-  },
-  {
-    id: "r3",
-    dept: "資產管理部",
-    week: CURRENT_WEEK_LABEL,
-    author: "梁嘉芫",
-    submittedAt: "2025-10-17 17:48",
-    cases: "• 既有投資組合季度回顧(8 家被投公司報表彙整)\n• Q4 募資方案評估\n• 法遵審核排程\n• D 客戶 NDA 條款審閱\n• K 公司退場機會評估",
-    blockers: "法遵審核等待管理層決議已 5 天,涉及 K 公司退場時的稅務優化方案。Q4 募資計畫尚未取得董事會明確指示,影響後續資金配置安排。",
-    needHelp: "需研究部提供 A 新創風險評估完整版以納入投組曝險試算。需業開部確認 D 客戶簽約時程,法務需提前 1 週準備合約。",
-    nextWeek: "完成 Q4 募資資金配置試算、K 公司退場評估報告、法遵審核完成 NDA 條款建議",
-    keywords: ["Q4", "募資", "法遵", "A 新創", "K 公司", "退場", "稅務", "D 客戶"],
-  },
 ];
 
 const SEED_HANDOFFS = [
@@ -5451,13 +5421,13 @@ function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userPro
   return (
     <div style={{ padding: "24px 28px", maxWidth: 720 }}>
       {(() => {
-        // 計算本週週五日期
-        const friday = new Date(NOW);
-        const day = friday.getDay();
-        const daysToFri = day === 0 ? 5 : day <= 5 ? 5 - day : 12 - day;
-        friday.setDate(friday.getDate() + daysToFri);
+        // 計算本週週日日期 (一週的最後一天)
+        const sunday = new Date(NOW);
+        const day = sunday.getDay();
+        const daysToSun = day === 0 ? 0 : 7 - day;
+        sunday.setDate(sunday.getDate() + daysToSun);
         const fmt = (d) => `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
-        const daysLeft = Math.ceil((friday - NOW) / 86400000);
+        const daysLeft = Math.ceil((sunday - NOW) / 86400000);
         const isOverdue = daysLeft < 0;
         const isToday = daysLeft === 0;
         return (
@@ -5466,7 +5436,7 @@ function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userPro
             title="本週週報填寫"
             subtitle={
               <span style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                <span>{displayWeek(getLatestWeekDisplay(reports))}</span>
+                <span>{CURRENT_WEEK_LABEL}</span>
                 <span style={{ color: C.textLight }}>·</span>
                 <span style={{
                   display: "inline-flex",
@@ -5479,7 +5449,7 @@ function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userPro
                   fontSize: 11,
                   letterSpacing: "0.03em",
                 }}>
-                  繳交期限：{fmt(friday)} (週五)
+                  繳交期限：{fmt(sunday)} (週日)
                   {isOverdue ? ` · 已逾期 ${-daysLeft} 天` : isToday ? " · 今日截止" : ` · 還有 ${daysLeft} 天`}
                 </span>
               </span>
@@ -10032,13 +10002,22 @@ export default function App() {
         // 偵測舊格式 reports (week 含「第 N 週」字樣) 或筆數過少，整批換成最新 SEED
         const hasOldWeekFormat = (r || []).some((x) => /第\s*\d+\s*週/.test(String(x.week || "")));
         const reportsTooFew = (r || []).length < 30;
+        // 偵測 submittedAt 是否有日期錯亂 (例：submitDate > week 結束日 30 天以上)
+        const hasBadSubmitDate = (r || []).some((x) => {
+          const wkM = String(x.week || "").match(/(\d{4})[/-](\d{1,2})[/-](\d{1,2}).*?[–-](?:\d{4}[/-])?(\d{1,2})[/-](\d{1,2})/);
+          const sub = String(x.submittedAt || "").match(/(\d{4})-(\d{1,2})-(\d{1,2})/);
+          if (!wkM || !sub) return false;
+          const wkEnd = new Date(+wkM[1], +wkM[4] - 1, +wkM[5]);
+          const subDate = new Date(+sub[1], +sub[2] - 1, +sub[3]);
+          return Math.abs(subDate - wkEnd) > 30 * 86400000; // 超過 30 天就視為錯亂
+        });
         // 偵測 handoffs 是否還在用部門短稱 (業開部/投研部/資管部)
         const handoffsHasShortName = (h || []).some((x) =>
           /^(業開部|投研部|資管部|管理層)$/.test(String(x.from || "")) ||
           /^(業開部|投研部|資管部|管理層)$/.test(String(x.to || ""))
         );
         const handoffsTooFew = (h || []).length < 30;
-        const needReset = hasOldWeekFormat || reportsTooFew;
+        const needReset = hasOldWeekFormat || reportsTooFew || hasBadSubmitDate;
         const finalReports = needReset ? SEED_REPORTS : r;
         const finalHandoffs = (handoffsTooFew || handoffsHasShortName) ? SEED_HANDOFFS : h;
         const finalMeetingHistory = (mh || []).length < 10 ? SEED_MEETING_HISTORY : mh;
