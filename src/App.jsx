@@ -324,7 +324,7 @@ const SEED_REPORTS_HISTORICAL = (() => {
 
   weeks.forEach((w, idx) => {
     const submitDate = new Date(NOW);
-    submitDate.setDate(submitDate.getDate() - (7 - idx) * 7 + 4); // 推算到當週週五
+    submitDate.setDate(submitDate.getDate() - (7 - idx) * 7 + 6); // 推算到當週週日
     const sd = submitDate.toISOString().slice(0, 10);
     [
       { dept: "投資研究部", author: "周世倫", story: researchStory[idx] },
@@ -4179,11 +4179,11 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
             if (!reportsByWeek[r.week]) reportsByWeek[r.week] = new Set();
             reportsByWeek[r.week].add(r.dept);
           });
-          const sortedWeeks = Object.keys(reportsByWeek).sort((a, b) => {
-            const na = parseInt((a.match(/\d+/) || [0])[0]);
-            const nb = parseInt((b.match(/\d+/) || [0])[0]);
-            return na - nb;
-          });
+          const wkKey = (s) => {
+            const m = String(s || "").match(/(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
+            return m ? +m[1] * 10000 + +m[2] * 100 + +m[3] : 0;
+          };
+          const sortedWeeks = Object.keys(reportsByWeek).sort((a, b) => wkKey(a) - wkKey(b));
           const reportSeries = sortedWeeks.slice(-8).map((w) => reportsByWeek[w].size);
           if (reportSeries.length === 0) reportSeries.push(0);
 
@@ -5626,11 +5626,16 @@ function WeeklyReport({ reports, setReports, blockers = [], setBlockers, userPro
         </div>
       </Card>
 
-      {/* 已提交清單 */}
+      {/* 已提交清單 - 嚴格用「今天所在的週」比對 */}
       <div style={{ marginTop: 24 }}>
-        <SectionTitle color={C.success}>本週已提交週報 ({reports.filter(r => r.week === getLatestWeek(reports)).length}/3)</SectionTitle>
+        <SectionTitle color={C.success}>本週已提交週報 ({reports.filter(r => r.week === CURRENT_WEEK_LABEL).length}/3)</SectionTitle>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {reports.filter(r => r.week === getLatestWeek(reports)).map((r) => (
+          {reports.filter(r => r.week === CURRENT_WEEK_LABEL).length === 0 && (
+            <Card style={{ padding: 18, textAlign: "center", color: C.textLight, fontSize: 13 }}>
+              本週尚無人繳交週報（截止日：週日）
+            </Card>
+          )}
+          {reports.filter(r => r.week === CURRENT_WEEK_LABEL).map((r) => (
             <Card key={r.id} style={{ padding: "12px 16px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start" }}>
                 <div>
@@ -9777,6 +9782,13 @@ const BotAction = ({ children }) => (
 // 保留 SEED 作為歷史基線，真實資料逐步覆蓋對應週次
 // ============================================================
 
+// 從 r.week 字串 ("2026/05/04 – 05/10") 解出可排序的整數 (YYYYMMDD)
+function parseWeekKey(w) {
+  const m = String(w || "").match(/(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
+  if (!m) return 0;
+  return +m[1] * 10000 + +m[2] * 100 + +m[3];
+}
+
 function deriveActivityHistory(reports, fallback) {
   if (!reports || reports.length === 0) return fallback;
   const countBullets = (text) => {
@@ -9785,7 +9797,7 @@ function deriveActivityHistory(reports, fallback) {
     return lines.length || 1;
   };
   const realData = reports.map((r) => ({
-    week: parseInt(r.week) || 0,
+    week: parseWeekKey(r.week),
     dept: r.dept,
     cases: Math.max(1, countBullets(r.cases)),
     blockers: r.blockers?.trim() ? Math.max(1, countBullets(r.blockers)) : 0,
@@ -9800,7 +9812,7 @@ function deriveTopicHistory(reports, fallback) {
   if (!reports || reports.length === 0) return fallback;
   const byWeek = {};
   reports.forEach((r) => {
-    const wk = parseInt(r.week);
+    const wk = parseWeekKey(r.week);
     if (!wk) return;
     if (!byWeek[wk]) byWeek[wk] = new Set();
     (r.keywords || []).forEach((kw) => byWeek[wk].add(kw));
@@ -10017,7 +10029,11 @@ export default function App() {
           /^(業開部|投研部|資管部|管理層)$/.test(String(x.to || ""))
         );
         const handoffsTooFew = (h || []).length < 30;
-        const needReset = hasOldWeekFormat || reportsTooFew || hasBadSubmitDate;
+        // 偵測舊 SEED 留下的本週週報 (id 為 "r1"/"r2"/"r3"，是已移除的 hardcoded SEED)
+        const hasOldSeedCurrentWeek = (r || []).some((x) =>
+          x.week === CURRENT_WEEK_LABEL && /^r[123]$/.test(String(x.id))
+        );
+        const needReset = hasOldWeekFormat || reportsTooFew || hasBadSubmitDate || hasOldSeedCurrentWeek;
         const finalReports = needReset ? SEED_REPORTS : r;
         const finalHandoffs = (handoffsTooFew || handoffsHasShortName) ? SEED_HANDOFFS : h;
         const finalMeetingHistory = (mh || []).length < 10 ? SEED_MEETING_HISTORY : mh;
