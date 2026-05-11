@@ -2937,7 +2937,7 @@ function generateMeetingAgenda(meetingType, reports, handoffs, decisions, blocke
     // 2. 本週待決議題
     const deptReports = reports.filter((r) => r.week === getLatestWeek(reports));
     const criticalBlockers = blockers
-      .filter((b) => b.status !== "resolved" && b.weekId === getLatestWeek(reports))
+      .filter((b) => b.status !== "resolved")
       .map((b) => ({ ...b, analysis: analyzeBlockerRecord(b, blockerHistory) }))
       .filter((b) => b.analysis.level === "critical" || b.analysis.level === "high");
 
@@ -3424,7 +3424,7 @@ function collectActionItems({ reports, handoffs, blockers, blockerHistory, decis
   const deptReports = reports.filter((r) => r.week === getLatestWeek(reports));
 
   // 1. 極高風險卡點(歷史分位數 >= P95,或資料不足但超過 SLA)
-  blockers.filter((b) => b.status !== "resolved" && b.weekId === getLatestWeek(reports)).forEach((b) => {
+  blockers.filter((b) => b.status !== "resolved").forEach((b) => {
     const a = analyzeBlockerRecord(b, blockerHistory);
     if (a.level === "critical" || (!a.hasData && a.level === "high")) {
       items.push({
@@ -3650,7 +3650,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
   // 結構化卡點 + 歷史分位數風險分析
   const activeBlockers = useMemo(() =>
     allBlockers
-      .filter((b) => b.status !== "resolved" && b.weekId === latestWeekRaw)
+      .filter((b) => b.status !== "resolved" && (b.weekId === CURRENT_WEEK_LABEL || b.weekId === latestWeekRaw))
       .map((b) => {
         const analysis = analyzeBlockerRecord(b, blockerHistory);
         return {
@@ -6952,10 +6952,9 @@ function BlockerAnalytics({ blockerHistory, blockers = [], reports = [], history
   const totalCount = blockerHistory.length;
   const overallMean = stats.mean(blockerHistory.map((h) => h.daysToResolve));
 
-  // 當前活躍卡點:改讀單筆 blocker,天數由 createdAt/resolvedAt 計算。
-  const latestWeek = getLatestWeek(reports);
+  // 當前活躍卡點: 取所有未解決卡點 (不限週次)
   const activeBlockers = blockers
-    .filter((b) => b.status !== "resolved" && (!latestWeek || b.weekId === latestWeek))
+    .filter((b) => b.status !== "resolved")
     .map((b) => analyzeBlockerRecord(b, blockerHistory))
     .sort((a, b) => (b.riskScore || 0) - (a.riskScore || 0));
 
