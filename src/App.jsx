@@ -3938,6 +3938,227 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
         </Card>
       )}
 
+      {/* === 高階摘要模式 · 視覺化圖表 === */}
+      {isAdmin && viewMode === "executive" && (
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16, marginBottom: 22 }}>
+          {/* 圖 1：近 12 週活動趨勢 (多線堆疊面積圖) */}
+          <Card style={{ padding: "20px 24px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 10, color: C.highlight, letterSpacing: "0.2em", fontWeight: 600 }}>WEEKLY TREND</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginTop: 4, fontFamily: '"Noto Serif TC", serif' }}>
+                  近 12 週活動趨勢
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 12, fontSize: 11, color: C.textMid }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ width: 10, height: 2, background: C.accent }} /> 案件
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ width: 10, height: 2, background: C.highlight }} /> 卡點
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ width: 10, height: 2, background: C.warn }} /> 協助請求
+                </span>
+              </div>
+            </div>
+            {(() => {
+              // 從 activityHistory 取近 12 週
+              const allWeeks = [...new Set(activityHistory.map((a) => a.week))].sort((a, b) => a - b);
+              const last12 = allWeeks.slice(-12);
+              const weekData = last12.map((wk) => {
+                const ws = activityHistory.filter((a) => a.week === wk);
+                return {
+                  week: wk,
+                  cases: ws.reduce((s, a) => s + (a.cases || 0), 0),
+                  blockers: ws.reduce((s, a) => s + (a.blockers || 0), 0),
+                  help: ws.reduce((s, a) => s + (a.helpRequests || 0), 0),
+                };
+              });
+              if (weekData.length < 2) return <div style={{ padding: 30, textAlign: "center", color: C.textLight, fontSize: 12 }}>資料不足</div>;
+
+              const W = 540, H = 180, PAD_L = 30, PAD_R = 10, PAD_T = 10, PAD_B = 28;
+              const innerW = W - PAD_L - PAD_R;
+              const innerH = H - PAD_T - PAD_B;
+              const allValues = weekData.flatMap((d) => [d.cases, d.blockers, d.help]);
+              const maxV = Math.max(...allValues, 1);
+              const stepX = innerW / Math.max(1, weekData.length - 1);
+              const xPos = (i) => PAD_L + i * stepX;
+              const yPos = (v) => PAD_T + innerH - (v / maxV) * innerH;
+
+              const buildPath = (key) => {
+                let path = "";
+                weekData.forEach((d, i) => {
+                  path += (i === 0 ? "M" : " L") + ` ${xPos(i).toFixed(1)},${yPos(d[key]).toFixed(1)}`;
+                });
+                return path;
+              };
+              const buildArea = (key) => buildPath(key) +
+                ` L ${xPos(weekData.length - 1).toFixed(1)},${PAD_T + innerH}` +
+                ` L ${xPos(0).toFixed(1)},${PAD_T + innerH} Z`;
+
+              // y 軸刻度
+              const yTicks = [0, Math.ceil(maxV / 2), maxV];
+
+              return (
+                <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", height: "auto" }}>
+                  <defs>
+                    <linearGradient id="gradAccent" x1="0" x2="0" y1="0" y2="1">
+                      <stop offset="0%" stopColor={C.accent} stopOpacity="0.18" />
+                      <stop offset="100%" stopColor={C.accent} stopOpacity="0" />
+                    </linearGradient>
+                  </defs>
+                  {/* 水平刻度線 */}
+                  {yTicks.map((v) => (
+                    <g key={v}>
+                      <line x1={PAD_L} y1={yPos(v)} x2={W - PAD_R} y2={yPos(v)} stroke={C.borderLight} strokeWidth="1" strokeDasharray="2,3" />
+                      <text x={PAD_L - 6} y={yPos(v) + 3} fontSize="9" fill={C.textLight} textAnchor="end">{v}</text>
+                    </g>
+                  ))}
+                  {/* 主線 (案件) 加面積 */}
+                  <path d={buildArea("cases")} fill="url(#gradAccent)" />
+                  <path d={buildPath("cases")} fill="none" stroke={C.accent} strokeWidth="1.8" />
+                  {/* 卡點線 */}
+                  <path d={buildPath("blockers")} fill="none" stroke={C.highlight} strokeWidth="1.5" />
+                  {/* 協助請求線 */}
+                  <path d={buildPath("help")} fill="none" stroke={C.warn} strokeWidth="1.5" strokeDasharray="3,2" />
+                  {/* 資料點 */}
+                  {weekData.map((d, i) => (
+                    <g key={i}>
+                      <circle cx={xPos(i)} cy={yPos(d.cases)} r="2.5" fill={C.accent} />
+                    </g>
+                  ))}
+                  {/* X 軸標籤 (每 2 週顯示一次) */}
+                  {weekData.map((d, i) => {
+                    if (i % 2 !== 0 && i !== weekData.length - 1) return null;
+                    const dateStr = String(d.week).padStart(8, "0");
+                    const md = `${parseInt(dateStr.slice(4, 6))}/${parseInt(dateStr.slice(6, 8))}`;
+                    return (
+                      <text key={i} x={xPos(i)} y={H - 8} fontSize="9" fill={C.textLight} textAnchor="middle">{md}</text>
+                    );
+                  })}
+                </svg>
+              );
+            })()}
+          </Card>
+
+          {/* 圖 2：卡點風險分布 (donut) */}
+          <Card style={{ padding: "20px 24px" }}>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 10, color: C.highlight, letterSpacing: "0.2em", fontWeight: 600 }}>BLOCKER RISK</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginTop: 4, fontFamily: '"Noto Serif TC", serif' }}>
+                卡點風險分布
+              </div>
+            </div>
+            {(() => {
+              const levels = { critical: 0, high: 0, medium: 0, normal: 0, idle: 0 };
+              activeBlockers.forEach((b) => {
+                const lv = b.analysis?.level || "normal";
+                if (levels[lv] !== undefined) levels[lv]++;
+              });
+              const total = Object.values(levels).reduce((s, v) => s + v, 0);
+              if (total === 0) return <div style={{ padding: 30, textAlign: "center", color: C.textLight, fontSize: 12 }}>無活躍卡點</div>;
+
+              const palette = {
+                critical: { color: C.danger, label: "極高" },
+                high: { color: C.warn, label: "高" },
+                medium: { color: "#C9A75A", label: "中" },
+                normal: { color: C.success, label: "正常" },
+                idle: { color: C.textLight, label: "低" },
+              };
+              const slices = Object.entries(levels).filter(([_, v]) => v > 0);
+              const R = 50, r = 32, cx = 70, cy = 70;
+              let cumulative = 0;
+              return (
+                <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                  <svg viewBox="0 0 140 140" width="140" height="140">
+                    {slices.map(([lv, count]) => {
+                      const start = cumulative / total;
+                      cumulative += count;
+                      const end = cumulative / total;
+                      const a1 = start * 2 * Math.PI - Math.PI / 2;
+                      const a2 = end * 2 * Math.PI - Math.PI / 2;
+                      const large = end - start > 0.5 ? 1 : 0;
+                      const x1 = cx + R * Math.cos(a1), y1 = cy + R * Math.sin(a1);
+                      const x2 = cx + R * Math.cos(a2), y2 = cy + R * Math.sin(a2);
+                      const x1i = cx + r * Math.cos(a1), y1i = cy + r * Math.sin(a1);
+                      const x2i = cx + r * Math.cos(a2), y2i = cy + r * Math.sin(a2);
+                      const path = `M ${x1} ${y1} A ${R} ${R} 0 ${large} 1 ${x2} ${y2} L ${x2i} ${y2i} A ${r} ${r} 0 ${large} 0 ${x1i} ${y1i} Z`;
+                      return <path key={lv} d={path} fill={palette[lv].color} />;
+                    })}
+                    <text x={cx} y={cy - 2} textAnchor="middle" fontSize="22" fontWeight="600" fill={C.text} fontFamily="'Noto Serif TC', serif">{total}</text>
+                    <text x={cx} y={cy + 13} textAnchor="middle" fontSize="9" fill={C.textLight} letterSpacing="2">ACTIVE</text>
+                  </svg>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 5, flex: 1 }}>
+                    {slices.map(([lv, count]) => (
+                      <div key={lv} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11 }}>
+                        <span style={{ width: 8, height: 8, background: palette[lv].color, display: "inline-block" }} />
+                        <span style={{ color: C.textMid, flex: 1 }}>{palette[lv].label}</span>
+                        <span style={{ fontWeight: 600, color: palette[lv].color }}>{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+          </Card>
+
+          {/* 圖 3：部門工作量分布 (水平條形圖) */}
+          <Card style={{ padding: "20px 24px", gridColumn: "span 2" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 10, color: C.highlight, letterSpacing: "0.2em", fontWeight: 600 }}>WORKLOAD DISTRIBUTION</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginTop: 4, fontFamily: '"Noto Serif TC", serif' }}>
+                  各部門員工負載分布
+                </div>
+              </div>
+              <span style={{ fontSize: 11, color: C.textLight }}>橫條長度 = 該部門平均負載 / 最大 100</span>
+            </div>
+            {(() => {
+              const loads = analyzeEmployeeLoad(reports, handoffs, employees);
+              const byDept = {};
+              loads.forEach((l) => {
+                if (!byDept[l.dept]) byDept[l.dept] = { total: 0, count: 0, overload: 0, members: [] };
+                byDept[l.dept].total += l.loadScore;
+                byDept[l.dept].count++;
+                if (l.level === "overload") byDept[l.dept].overload++;
+                byDept[l.dept].members.push(l);
+              });
+              const deptList = Object.entries(byDept).map(([dept, d]) => ({
+                dept,
+                avg: d.count > 0 ? d.total / d.count : 0,
+                overload: d.overload,
+                count: d.count,
+              })).sort((a, b) => b.avg - a.avg);
+              const maxAvg = Math.max(...deptList.map((d) => d.avg), 1);
+
+              return (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {deptList.map((d) => (
+                    <div key={d.dept}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 5, fontSize: 12 }}>
+                        <span style={{ fontWeight: 500, color: C.text }}>{d.dept}</span>
+                        <span style={{ color: C.textMid, fontSize: 11 }}>
+                          {d.count} 人 · 平均 <strong style={{ color: C.text }}>{d.avg.toFixed(1)}</strong> · 過載 <strong style={{ color: d.overload > 0 ? C.danger : C.text }}>{d.overload}</strong>
+                        </span>
+                      </div>
+                      <div style={{ height: 8, background: C.bg, position: "relative", overflow: "hidden" }}>
+                        <div style={{
+                          width: `${(d.avg / maxAvg) * 100}%`,
+                          height: "100%",
+                          background: d.overload > 0 ? C.highlight : C.accent,
+                          transition: "width 0.4s",
+                        }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </Card>
+        </div>
+      )}
+
       {/* 以下為「詳細視圖」內容，高階摘要模式時隱藏 */}
       {(!isAdmin || viewMode === "detail") && <>
 
