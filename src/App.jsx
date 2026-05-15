@@ -4134,19 +4134,214 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
         const oriWoW = +(ori.index - oriPrev).toFixed(1);
         const oriYtd = Math.min(99, Math.max(1, Math.round((ori.index / 200) * 100)));
 
-        // Morning Bullet: 3 件必須立刻決策的事 (融合紅燈)
-        const morningBullet = redItems.slice(0, 3).map((item) => {
-          let principalDecision = "Review & decide";
-          if (item.type === "decision") principalDecision = "Re-prioritize · escalate · or cancel";
-          if (item.type === "blocker")  principalDecision = "Escalate to direct intervention";
-          if (item.type === "handoff")  principalDecision = "Push for sign-off or reassign";
-          return { ...item, principalDecision };
+        // 整體狀況：把 ORI 分數翻譯成董事長聽得懂的話
+        const overallStatus = (() => {
+          if (ori.index >= 150) return { label: "今天要花時間", color: C.danger, advice: "下面這幾件事不解掉，整週都會被拖住" };
+          if (ori.index >= 125) return { label: "要注意",       color: C.warn,   advice: "有幾件事在惡化，建議今天看一下" };
+          if (ori.index >= 100) return { label: "還可以",       color: C.textMid, advice: "整體穩定，只有少數需要關注的事項" };
+          return                     { label: "順利",          color: C.success, advice: "本週公司運作正常，無重大警示" };
+        })();
+
+        // 今天要處理的事 (從紅燈來)，翻譯成口語
+        const todayItems = redItems.slice(0, 3).map((item) => {
+          let suggest = "您看一下要怎麼處理";
+          if (item.type === "decision") suggest = "請決定要繼續、放掉、或重新指派";
+          if (item.type === "blocker")  suggest = "已超過歷史經驗的解決時間，建議直接介入";
+          if (item.type === "handoff")  suggest = "已超過一天沒人接，請催進度或重新指派";
+          return { ...item, suggest };
         });
+
+        // 本週留意但不急
+        const watchItems = yellowItems.slice(0, 4).map((item) => ({
+          ...item,
+          plain: item.reason.replace(/P(\d+)/, "（已超過歷史 $1% 的時間）"),
+        }));
 
         // ========================================================
         // UI 渲染
         // ========================================================
         return (
+          <div style={{ marginBottom: 24, maxWidth: 760, marginLeft: "auto", marginRight: "auto" }}>
+            {/* === 對董事長講話 · 主卡片 === */}
+            <Card style={{ padding: "40px 48px", marginBottom: 18, background: "white" }}>
+              {/* 招呼 */}
+              <div style={{
+                fontSize: 13, color: C.textMid,
+                fontFamily: '"Noto Serif TC", serif',
+                marginBottom: 4, letterSpacing: "0.02em",
+              }}>
+                {userProfile?.displayName || "董事長"}您好
+              </div>
+              <div style={{
+                fontSize: 11, color: C.textLight, marginBottom: 26,
+                letterSpacing: "0.05em",
+              }}>
+                今天是 {NOW.getFullYear()} 年 {NOW.getMonth() + 1} 月 {NOW.getDate()} 日（{["週日","週一","週二","週三","週四","週五","週六"][NOW.getDay()]}）
+              </div>
+
+              {/* 本週整體狀況 */}
+              <div style={{
+                paddingBottom: 24,
+                borderBottom: "1px solid " + C.borderLight,
+                marginBottom: 26,
+              }}>
+                <div style={{ fontSize: 13, color: C.textMid, marginBottom: 10 }}>
+                  本週公司狀況：
+                </div>
+                <div style={{
+                  fontSize: 32,
+                  fontWeight: 600,
+                  color: overallStatus.color,
+                  fontFamily: '"Noto Serif TC", serif',
+                  letterSpacing: "0.02em",
+                  marginBottom: 10,
+                  lineHeight: 1.2,
+                }}>
+                  {overallStatus.label}
+                </div>
+                <div style={{ fontSize: 13, color: C.textMid, lineHeight: 1.8 }}>
+                  {overallStatus.advice}
+                </div>
+              </div>
+
+              {/* 今天要您處理的事 */}
+              {todayItems.length > 0 ? (
+                <div style={{ marginBottom: 26 }}>
+                  <div style={{
+                    fontSize: 14, color: C.text, fontWeight: 600,
+                    fontFamily: '"Noto Serif TC", serif',
+                    marginBottom: 16,
+                  }}>
+                    您今天最好處理這 {todayItems.length} 件事
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                    {todayItems.map((item, i) => (
+                      <div
+                        key={item.id}
+                        onClick={item.onClick}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "32px 1fr",
+                          gap: 14,
+                          cursor: "pointer",
+                          padding: "12px 0",
+                          borderBottom: i < todayItems.length - 1 ? "1px solid " + C.borderLight : "none",
+                          transition: "padding 0.15s",
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.paddingLeft = "6px"}
+                        onMouseLeave={(e) => e.currentTarget.style.paddingLeft = "0"}
+                      >
+                        <div style={{
+                          fontSize: 20, fontWeight: 600, color: C.highlight,
+                          fontFamily: '"Noto Serif TC", serif', lineHeight: 1.1,
+                        }}>
+                          {i + 1}.
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 15, fontWeight: 500, color: C.text, lineHeight: 1.5, marginBottom: 6 }}>
+                            {item.name}
+                          </div>
+                          <div style={{ fontSize: 12, color: C.textMid, lineHeight: 1.7, marginBottom: 8 }}>
+                            {item.reason}．{item.duration}
+                          </div>
+                          <div style={{
+                            fontSize: 12, color: C.highlight,
+                            paddingLeft: 12, borderLeft: "2px solid " + C.highlight + "60",
+                            lineHeight: 1.7,
+                          }}>
+                            建議：{item.suggest}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div style={{
+                  padding: "18px 0", marginBottom: 26,
+                  fontSize: 14, color: C.success,
+                  borderBottom: "1px solid " + C.borderLight,
+                  fontFamily: '"Noto Serif TC", serif',
+                }}>
+                  ✓ 今天沒有需要您馬上處理的事，可以放心開會。
+                </div>
+              )}
+
+              {/* 留意但不急的事 */}
+              {watchItems.length > 0 && (
+                <div style={{ marginBottom: 22 }}>
+                  <div style={{
+                    fontSize: 13, color: C.textMid, fontWeight: 500, marginBottom: 12,
+                  }}>
+                    本週要留意，但不急著今天處理：
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {watchItems.map((item) => (
+                      <div
+                        key={item.id}
+                        onClick={item.onClick}
+                        style={{
+                          fontSize: 13, color: C.textMid,
+                          padding: "8px 0", lineHeight: 1.6,
+                          cursor: "pointer", display: "flex", alignItems: "baseline", gap: 10,
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.color = C.text}
+                        onMouseLeave={(e) => e.currentTarget.style.color = C.textMid}
+                      >
+                        <span style={{ color: C.warn, fontSize: 10 }}>●</span>
+                        <span><strong style={{ color: C.text, fontWeight: 500 }}>{item.name}</strong>　{item.reason}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 系統發現的結構性問題 */}
+              {insights.length > 0 && (
+                <div style={{
+                  marginTop: 22, padding: "20px 22px",
+                  background: C.bg,
+                  borderLeft: "3px solid " + C.purple,
+                }}>
+                  <div style={{
+                    fontSize: 12, color: C.purple, fontWeight: 600, marginBottom: 12,
+                    letterSpacing: "0.05em",
+                  }}>
+                    順便提醒一件事
+                  </div>
+                  {insights.slice(0, 1).map((ins) => (
+                    <div key={ins.type} onClick={ins.onClick} style={{ cursor: "pointer" }}>
+                      <div style={{
+                        fontSize: 14, color: C.text, fontWeight: 500,
+                        marginBottom: 8, lineHeight: 1.7,
+                        fontFamily: '"Noto Serif TC", serif',
+                      }}>
+                        {ins.problem}
+                      </div>
+                      <div style={{ fontSize: 12, color: C.textMid, lineHeight: 1.7, marginBottom: 8 }}>
+                        {ins.data}
+                      </div>
+                      <div style={{ fontSize: 12, color: C.purple, lineHeight: 1.7 }}>
+                        {ins.action}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+
+            {/* 切換到詳細視圖提示 */}
+            <div style={{
+              textAlign: "center",
+              fontSize: 12, color: C.textLight, letterSpacing: "0.02em",
+            }}>
+              想看更詳細的資料？點右上的「詳細視圖」
+            </div>
+          </div>
+        );
+        // 以下為被取代的舊版內容
+        // eslint-disable-next-line
+        const _UNUSED_OLD_UI = (
           <div style={{ marginBottom: 24 }}>
             {/* === ORI Header — The One Number === */}
             <Card style={{ padding: "26px 32px", marginBottom: 16, background: "white" }}>
