@@ -2038,63 +2038,138 @@ function allDeptNames(departments = SEED_DEPARTMENTS) {
   return departments.filter((d) => d.active !== false).map((d) => d.name);
 }
 
+// ============================================================
+// 員工負載分析 v2 - 加權模型
+// 公式：W_total = Σ (時間衰減 × 案件複雜度) + 跨部門協作中心性 + 待處理懲罰
+// 時間衰減: 本週 1.0, 上週 0.7, 2 週前 0.4, 3 週前 0.15, 更早 0
+// 複雜度: 跨部門案件 ×1.5, 提及卡點 ×2.0, 一般案件 ×1.0
+// ============================================================
 function analyzeEmployeeLoad(reports, handoffs, employees = SEED_EMPLOYEES) {
-  const latestWeek = getLatestWeek(reports);
-  const currentReports = reports.filter((r) => r.week === latestWeek);
+  const parseWeekDate = (w) => {
+    const m = String(w || "").match(/(\d{4})[/-](\d{1,2})[/-](\d{1,2})/);
+    return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
+  };
+  const TIME_DECAY = [1.0, 0.7, 0.4, 0.15]; // 本週/上週/2週/3週前
+  const getDecayWeight = (weekStr) => {
+    const d = parseWeekDate(weekStr);
+    if (!d) return 0;
+    const weeksAgo = Math.max(0, Math.round((NOW - d) / (86400000 * 7)));
+    if (weeksAgo >= TIME_DECAY.length) return 0;
+    return TIME_DECAY[weeksAgo];
+  };
 
-  return employees.map((emp) => {
-    // 1. 本人是否有填寫週報
-    const ownReport = currentReports.find((r) => r.author === emp.name);
+  // 預先計算每張報告的案件複雜度
+  const reportComplexity = (r) => {
+    const cases = (r.cases || "").split("\n").filter((l) => /^[\s]*[•\-*]/.test(l));
+    let weight = 0;
+    cases.forEach((line) => {
+      let factor = 1.0;
+      // 跨部門案件:含 "請" "需" "協助" 或部門名
+      if (/請|需|協助|跨部門|部$/.test(line)) factor = 1.5;
+      // 卡點相關
+      if (/卡|延|未通|缺漏|未到|逾期/.test(line)) factor = 2.0;
+      weight += factor;
+    });
+    return weight;
+  };
 
-    // 2. 被提及次數(出現在任何週報內文中)
-    let mentions = 0;
-    currentReports.forEach((r) => {
-      const fullText = `${r.cases}\n${r.blockers}\n${r.needHelp}\n${r.nextWeek}`;
-      if (r.author !== emp.name) {
+  // 預先計算所有員工分數
+  const scores = employees.map((emp) => {
+    let timeWeightedCases = 0;
+    let blockerLoad = 0;
+    let mentionsScore = 0;
+    let activeWeeks = 0;
+    const breakdown = [];
+
+    reports.forEach((r) => {
+      const decay = getDecayWeight(r.week);
+      if (decay === 0) return;
+      // 本人填寫的報告 → 案件複雜度加總
+      if (r.author === emp.name) {
+        const c = reportComplexity(r);
+        timeWeightedCases += c * decay;
+        if (decay > 0) activeWeeks++;
+        // 自己擔的卡點額外加重
+        if ((r.blockers || "").trim()) {
+          const bCount = (r.blockers.match(/[•\-]/g) || ["x"]).length;
+          blockerLoad += bCount * 2.5 * decay;
+        }
+        breakdown.push({ week: r.week, type: "case", weight: c * decay, decay });
+      } else {
+        // 被別人提及
+        const fullText = `${r.cases || ""}\n${r.blockers || ""}\n${r.needHelp || ""}\n${r.nextWeek || ""}`;
         const re = new RegExp(emp.name, "g");
-        mentions += (fullText.match(re) || []).length;
+        const hits = (fullText.match(re) || []).length;
+        if (hits > 0) {
+          mentionsScore += hits * 1.5 * decay;
+        }
       }
     });
 
-    // 3. 交接單參與度(發出 + 接收)
-    const asHandoffSender = handoffs.filter((h) => h.sender === emp.name).length;
-    const asHandoffReceiver = handoffs.filter((h) => h.receiver === emp.name).length;
-    const pendingReceive = handoffs.filter(
-      (h) => h.receiver === emp.name && h.status === "待簽收"
-    ).length;
+    // 交接單：權重依時間
+    let handoffLoad = 0;
+    let asHandoffSender = 0, asHandoffReceiver = 0, pendingReceive = 0;
+    handoffs.forEach((h) => {
+      const involved = (h.sender === emp.name) || (h.receiver === emp.name);
+      if (!involved) return;
+      const hd = h.createdAt ? new Date(h.createdAt) : null;
+      const weeksAgo = hd ? Math.max(0, Math.round((NOW - hd) / (86400000 * 7))) : 4;
+      const decay = weeksAgo < TIME_DECAY.length ? TIME_DECAY[weeksAgo] : 0;
+      if (decay === 0) return;
+      if (h.sender === emp.name) asHandoffSender++;
+      if (h.receiver === emp.name) asHandoffReceiver++;
+      if (h.receiver === emp.name && h.status === "待簽收") {
+        pendingReceive++;
+        handoffLoad += 4 * decay; // 待簽收懲罰加倍
+      } else {
+        handoffLoad += 1.5 * decay;
+      }
+    });
 
-    // 4. 負載總分
-    // 權重:自己填的週報案件數 * 3 + 被提及 * 2 + 交接總數 * 2 + 待處理 * 4
-    const caseCount = ownReport
-      ? ownReport.cases.split(/[•\n]/).filter((s) => s.trim()).length
-      : 0;
-    const loadScore =
-      caseCount * 3 +
-      mentions * 2 +
-      (asHandoffSender + asHandoffReceiver) * 2 +
-      pendingReceive * 4;
-
-    // 5. 分級
-    let level;
-    if (loadScore >= 20) level = "overload";
-    else if (loadScore >= 12) level = "high";
-    else if (loadScore >= 6) level = "normal";
-    else if (loadScore >= 1) level = "low";
-    else level = "idle";
+    const loadScore = +(timeWeightedCases + blockerLoad + mentionsScore + handoffLoad).toFixed(2);
 
     return {
       ...emp,
-      hasReport: !!ownReport,
-      caseCount,
-      mentions,
+      hasReport: activeWeeks > 0,
+      caseCount: Math.round(timeWeightedCases),
+      blockerLoad: +blockerLoad.toFixed(1),
+      mentions: Math.round(mentionsScore / 1.5),
+      mentionsWeighted: +mentionsScore.toFixed(1),
       asHandoffSender,
       asHandoffReceiver,
       pendingReceive,
       totalHandoffs: asHandoffSender + asHandoffReceiver,
+      handoffLoad: +handoffLoad.toFixed(1),
+      timeWeightedCases: +timeWeightedCases.toFixed(1),
       loadScore,
-      level,
+      activeWeeks,
+      breakdown: {
+        cases: +timeWeightedCases.toFixed(1),
+        blockers: +blockerLoad.toFixed(1),
+        mentions: +mentionsScore.toFixed(1),
+        handoffs: +handoffLoad.toFixed(1),
+      },
     };
-  }).sort((a, b) => b.loadScore - a.loadScore);
+  });
+
+  // 計算分位數 (該人 loadScore vs 全公司分布)
+  const allScores = scores.map((s) => s.loadScore).sort((a, b) => a - b);
+  const result = scores.map((s) => {
+    const rank = allScores.findIndex((v) => v >= s.loadScore);
+    const percentile = allScores.length > 1 ? Math.round((rank / (allScores.length - 1)) * 100) : 50;
+
+    // 分級依據：絕對分數 OR 相對分位數，取較嚴重者
+    let level;
+    if (s.loadScore >= 25 || percentile >= 90) level = "overload";
+    else if (s.loadScore >= 15 || percentile >= 75) level = "high";
+    else if (s.loadScore >= 6) level = "normal";
+    else if (s.loadScore >= 1) level = "low";
+    else level = "idle";
+
+    return { ...s, percentile, level };
+  });
+
+  return result.sort((a, b) => b.loadScore - a.loadScore);
 }
 
 function loadLevelInfo(level) {
@@ -3619,6 +3694,8 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
   const [showAllActions, setShowAllActions] = useState(false);
   const [showAllCare, setShowAllCare] = useState(false);
   const [showAllTurnover, setShowAllTurnover] = useState(false);
+  // 預設管理層使用「高階摘要」模式 (只看 5 個關鍵指標)，可切「詳細視圖」
+  const [viewMode, setViewMode] = useState("executive"); // "executive" | "detail"
   const isAdmin = userProfile?.role === "admin";
   const isManager = userProfile?.role === "manager";
   const isMember = userProfile?.role === "member" || (!isAdmin && !isManager);
@@ -3724,7 +3801,32 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
         title={titleByRole}
         subtitle={subtitleByRole}
         action={
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            {isAdmin && (
+              <div style={{ display: "flex", border: "1px solid " + C.border, background: "white" }}>
+                {[
+                  { k: "executive", label: "高階摘要" },
+                  { k: "detail", label: "詳細視圖" },
+                ].map((opt, i) => (
+                  <button
+                    key={opt.k}
+                    onClick={() => setViewMode(opt.k)}
+                    style={{
+                      padding: "7px 14px",
+                      background: viewMode === opt.k ? C.accent : "white",
+                      color: viewMode === opt.k ? "white" : C.textMid,
+                      border: "none",
+                      borderLeft: i > 0 ? "1px solid " + C.border : "none",
+                      fontSize: 12,
+                      fontWeight: viewMode === opt.k ? 600 : 500,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                      letterSpacing: "0.05em",
+                    }}
+                  >{opt.label}</button>
+                ))}
+              </div>
+            )}
             {isAdmin && (
               <Button variant="primary" icon={FileText} size="sm" onClick={() => setShowBriefing(true)}>
                 產出週會 Briefing
@@ -3733,6 +3835,111 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
           </div>
         }
       />
+
+      {/* === 高階摘要模式 (Executive Summary) === */}
+      {isAdmin && viewMode === "executive" && (
+        <Card style={{ padding: "24px 28px", marginBottom: 22, background: "white" }}>
+          <div style={{ fontSize: 10, color: C.highlight, letterSpacing: "0.25em", fontWeight: 600, marginBottom: 14 }}>
+            EXECUTIVE BRIEF · 一頁看完
+          </div>
+
+          {/* 5 個關鍵指標 (BB) */}
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(5, 1fr)",
+            gap: 0,
+            marginBottom: 22,
+            borderTop: "1px solid " + C.borderLight,
+            borderBottom: "1px solid " + C.borderLight,
+          }}>
+            {(() => {
+              const overdue = decisions.filter((d) => d.status === "逾期").length;
+              const critical = activeBlockers.filter((b) => b.analysis?.level === "critical").length;
+              const unsignedCount = unsigned.length;
+              const submittedThisWeek = reports.filter(r => r.week === CURRENT_WEEK_LABEL).length;
+              const careCount = careAlerts.length;
+              return [
+                { label: "逾期決策", value: overdue, tone: overdue > 0 ? "danger" : "neutral", action: () => onNav("decisions") },
+                { label: "極高風險卡點", value: critical, tone: critical > 0 ? "danger" : "neutral", action: () => onNav("analytics") },
+                { label: "未閉環交接", value: unsignedCount, tone: unsignedCount > 2 ? "warn" : "neutral", action: () => onNav("handoff") },
+                { label: "本週週報", value: `${submittedThisWeek}/3`, tone: submittedThisWeek < 3 ? "warn" : "success", action: () => onNav("report") },
+                { label: "員工關懷提醒", value: careCount, tone: careCount > 2 ? "warn" : "neutral", action: () => onNav("employees") },
+              ].map((m, i) => (
+                <div
+                  key={m.label}
+                  onClick={m.action}
+                  style={{
+                    padding: "20px 16px",
+                    borderRight: i < 4 ? "1px solid " + C.borderLight : "none",
+                    cursor: "pointer",
+                    textAlign: "center",
+                    transition: "background 0.12s",
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = C.bg}
+                  onMouseLeave={(e) => e.currentTarget.style.background = "white"}
+                >
+                  <div style={{ fontSize: 10, color: C.textLight, marginBottom: 8, letterSpacing: "0.1em" }}>
+                    {m.label.toUpperCase()}
+                  </div>
+                  <div style={{
+                    fontSize: 32,
+                    fontWeight: 600,
+                    color: m.tone === "danger" ? C.danger : m.tone === "warn" ? C.warn : m.tone === "success" ? C.success : C.text,
+                    fontFamily: '"Noto Serif TC", serif',
+                    lineHeight: 1,
+                  }}>{m.value}</div>
+                  <div style={{ fontSize: 11, color: C.textMid, marginTop: 6 }}>{m.label}</div>
+                </div>
+              ));
+            })()}
+          </div>
+
+          {/* 必須關注的事項 (最多 3 條) */}
+          {actionItems.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, color: C.textMid, letterSpacing: "0.1em", fontWeight: 600, marginBottom: 10 }}>
+                ⚠ 須親自處理（系統推薦 Top 3）
+              </div>
+              {actionItems.slice(0, 3).map((item) => (
+                <div
+                  key={item.id}
+                  onClick={() => {
+                    if (item.decision) setViewDecision(item.decision);
+                    else if (item.type === "overload") onNav("employees");
+                    else if (item.type === "critical-blocker") onNav("analytics");
+                  }}
+                  style={{
+                    padding: "10px 14px",
+                    background: C.bg,
+                    borderLeft: "3px solid " + C.highlight,
+                    marginBottom: 6,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                  }}
+                >
+                  <span style={{ fontSize: 14 }}>{item.icon}</span>
+                  <div style={{ flex: 1, fontSize: 13, color: C.text, fontWeight: 500 }}>
+                    {item.title}
+                  </div>
+                  <ChevronRight size={14} color={C.textLight} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div style={{
+            marginTop: 18, paddingTop: 14, borderTop: "1px solid " + C.borderLight,
+            fontSize: 11, color: C.textLight, textAlign: "center", letterSpacing: "0.04em",
+          }}>
+            需要更多資訊？切換到「詳細視圖」查看完整分析
+          </div>
+        </Card>
+      )}
+
+      {/* 以下為「詳細視圖」內容，高階摘要模式時隱藏 */}
+      {(!isAdmin || viewMode === "detail") && <>
 
       {/* C2. 慶祝里程碑橫幅(管理層專屬) */}
       {isAdmin && milestones.length > 0 && (
@@ -4593,6 +4800,9 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
           })}
         </div>
       </Card>
+
+      </>}
+      {/* 詳細視圖 fragment 結束 */}
 
       {/* 週報詳情 Modal */}
       <Modal
@@ -6488,37 +6698,125 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
     return { relatedHandoffs, relatedDecisions, relatedReports };
   };
 
-  // 全文搜尋：tag 不再是唯一關鍵字依據，所有有意義的欄位都納入比對
-  // 標題 (高權重) > 標籤 > 摘要 > 結論/負責人 > 案件詳情內容
-  const score = (item) => {
-    if (!q.trim()) return 100;
-    const terms = q.split(/\s+/).filter(Boolean);
-    const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    let s = 0;
-    terms.forEach((t) => {
-      const re = new RegExp(escapeRegex(t), "i");
-      if (re.test(item.title || "")) s += 30;
-      (item.tags || []).forEach((tag) => { if (re.test(tag)) s += 25; });
-      if (re.test(item.summary || "")) s += 15;
-      if (re.test(item.outcome || "")) s += 10;
-      if (re.test(item.owner || "")) s += 10;
-      if (re.test(item.date || "")) s += 8;
-      // 案件詳情內容
-      const detail = item.detail || {};
-      if (re.test(detail.background || "")) s += 8;
-      if (re.test(detail.process || "")) s += 8;
-      if (re.test(detail.valuation || "")) s += 8;
-      if (re.test(detail.result || "")) s += 8;
-      if (re.test(detail.lessons || "")) s += 8;
-      (detail.keyInsights || []).forEach((k) => { if (re.test(k)) s += 6; });
-    });
-    return Math.min(100, s);
-  };
+  // ============================================================
+  // TF-IDF 相似度檢索 (取代簡單關鍵字加權)
+  // 1. Tokenize 案件文字 + 加權各欄位
+  // 2. 計算每個 term 的 IDF: log(N / df)
+  // 3. 計算 query 與每筆案件的 cosine similarity
+  // 4. 顯示百分比 (0-100)
+  // ============================================================
+  const { results, searchExplain } = useMemo(() => {
+    // 中英數混合切詞 (中文 2-gram + 英數連續字串)
+    const tokenize = (text) => {
+      if (!text) return [];
+      const s = String(text).toLowerCase();
+      const tokens = [];
+      // 英數字連續字串
+      const alnum = s.match(/[a-z0-9]+/g) || [];
+      tokens.push(...alnum);
+      // 中文 2-gram (每 2 字為一個 token)
+      const chineseChars = s.replace(/[^一-龥]/g, "");
+      for (let i = 0; i < chineseChars.length - 1; i++) {
+        tokens.push(chineseChars.slice(i, i + 2));
+      }
+      // 也保留單字 (對短查詢有用)
+      const allChinese = s.match(/[一-龥]/g) || [];
+      tokens.push(...allChinese);
+      return tokens;
+    };
 
-  const results = history
-    .map((h) => ({ ...h, relevance: score(h) }))
-    .filter((h) => h.relevance > 0 || !q.trim())
-    .sort((a, b) => b.relevance - a.relevance);
+    // 把每筆案件序列化成「加權文字」(重要欄位重複多次)
+    const docText = (item) => {
+      const detail = item.detail || {};
+      return [
+        item.title, item.title, item.title, // 標題權重 ×3
+        ...(item.tags || []).flatMap((t) => [t, t]), // tags 權重 ×2
+        item.summary,
+        item.outcome,
+        item.owner,
+        detail.background,
+        detail.process,
+        detail.valuation,
+        detail.result,
+        detail.lessons,
+        ...(detail.keyInsights || []),
+      ].filter(Boolean).join(" ");
+    };
+
+    // 建立 corpus (所有案件的 token 計數)
+    const docs = history.map((item) => {
+      const tokens = tokenize(docText(item));
+      const tf = {};
+      tokens.forEach((t) => { tf[t] = (tf[t] || 0) + 1; });
+      return { item, tokens, tf, length: tokens.length };
+    });
+
+    // 計算 IDF (文件頻率反向)
+    const N = docs.length || 1;
+    const df = {};
+    docs.forEach((d) => {
+      Object.keys(d.tf).forEach((t) => { df[t] = (df[t] || 0) + 1; });
+    });
+    const idf = {};
+    Object.keys(df).forEach((t) => {
+      idf[t] = Math.log((N + 1) / (df[t] + 1)) + 1; // smooth IDF
+    });
+
+    // 計算 query 向量
+    const queryTokens = tokenize(q);
+    const queryTf = {};
+    queryTokens.forEach((t) => { queryTf[t] = (queryTf[t] || 0) + 1; });
+
+    const queryVec = {};
+    let queryNorm = 0;
+    Object.keys(queryTf).forEach((t) => {
+      const tfidf = (queryTf[t] / Math.max(1, queryTokens.length)) * (idf[t] || 1);
+      queryVec[t] = tfidf;
+      queryNorm += tfidf * tfidf;
+    });
+    queryNorm = Math.sqrt(queryNorm);
+
+    // 每筆案件計算 cosine similarity
+    const explained = []; // 用於展示前 3 個貢獻 term
+    const scored = docs.map((d) => {
+      if (!q.trim()) return { ...d.item, relevance: 100, _terms: [] };
+      if (queryNorm === 0) return { ...d.item, relevance: 0, _terms: [] };
+      let dot = 0;
+      let docNorm = 0;
+      const termContribs = [];
+      Object.keys(queryVec).forEach((t) => {
+        const docTfidf = ((d.tf[t] || 0) / Math.max(1, d.length)) * (idf[t] || 1);
+        const contrib = queryVec[t] * docTfidf;
+        if (contrib > 0) termContribs.push({ term: t, contrib });
+        dot += contrib;
+      });
+      Object.keys(d.tf).forEach((t) => {
+        const docTfidf = (d.tf[t] / Math.max(1, d.length)) * (idf[t] || 1);
+        docNorm += docTfidf * docTfidf;
+      });
+      docNorm = Math.sqrt(docNorm);
+      const sim = (queryNorm === 0 || docNorm === 0) ? 0 : dot / (queryNorm * docNorm);
+      const relevance = Math.round(sim * 100);
+      const topTerms = termContribs.sort((a, b) => b.contrib - a.contrib).slice(0, 4).map((x) => x.term);
+      return { ...d.item, relevance, _terms: topTerms };
+    });
+
+    const filtered = scored
+      .filter((h) => h.relevance > 0 || !q.trim())
+      .sort((a, b) => b.relevance - a.relevance);
+
+    return {
+      results: filtered,
+      searchExplain: q.trim() ? {
+        N,
+        queryTermsCount: Object.keys(queryVec).length,
+        topIdfTerms: Object.keys(queryVec)
+          .sort((a, b) => (idf[b] || 0) - (idf[a] || 0))
+          .slice(0, 5)
+          .map((t) => ({ term: t, idf: +(idf[t] || 0).toFixed(2) })),
+      } : null,
+    };
+  }, [q, history]);
 
   const allTags = Array.from(new Set(history.flatMap((h) => h.tags)));
 
@@ -6564,9 +6862,35 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
         </div>
       </Card>
 
-      <div style={{ fontSize: 12, color: C.textMid, marginBottom: 10 }}>
-        找到 {results.length} 筆相關案件
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        marginBottom: 10, fontSize: 12, color: C.textMid, flexWrap: "wrap", gap: 8,
+      }}>
+        <span>找到 {results.length} 筆相關案件</span>
+        {searchExplain && (
+          <span style={{ fontSize: 10, color: C.textLight, letterSpacing: "0.02em" }}>
+            TF-IDF + Cosine Similarity · 語料 {searchExplain.N} 文件 · query 切詞 {searchExplain.queryTermsCount} 個
+          </span>
+        )}
       </div>
+      {searchExplain && searchExplain.topIdfTerms.length > 0 && (
+        <div style={{
+          marginBottom: 14, padding: "8px 12px",
+          background: C.accentLight, fontSize: 11, color: C.accent,
+          display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+        }}>
+          <span style={{ fontWeight: 600, letterSpacing: "0.05em" }}>HIGH-IDF TERMS</span>
+          {searchExplain.topIdfTerms.map((t) => (
+            <span key={t.term} style={{
+              padding: "1px 6px", background: "white",
+              fontFamily: "monospace", fontSize: 10,
+            }}>
+              {t.term} <span style={{ color: C.textLight }}>{t.idf}</span>
+            </span>
+          ))}
+          <span style={{ marginLeft: "auto", color: C.textMid }}>← IDF 高 = 該詞在語料中稀有 = 區分力強</span>
+        </div>
+      )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {results.length === 0 ? (
@@ -6603,10 +6927,24 @@ function History({ history, setHistory, handoffs = [], decisions = [], reports =
                 <div style={{ fontSize: 12, color: C.textMid, lineHeight: 1.7, marginBottom: 8 }}>
                   {displayWeek(r.date)} · {r.summary}
                 </div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8, alignItems: "center" }}>
                   {r.tags.map((t) => (
                     <Pill key={t} tone="purple">{t}</Pill>
                   ))}
+                  {Array.isArray(r._terms) && r._terms.length > 0 && (
+                    <span style={{
+                      marginLeft: 6, fontSize: 10, color: C.textLight,
+                      display: "inline-flex", gap: 4, alignItems: "center",
+                    }}>
+                      <span style={{ fontFamily: "monospace", color: C.textMid }}>match:</span>
+                      {r._terms.map((t) => (
+                        <span key={t} style={{
+                          padding: "1px 5px", background: C.warnLight,
+                          color: "#7A4F00", fontFamily: "monospace", fontSize: 10,
+                        }}>{t}</span>
+                      ))}
+                    </span>
+                  )}
                 </div>
                 <div style={{ display: "flex", gap: 14, fontSize: 11, color: C.textLight, paddingTop: 8, borderTop: "1px solid " + C.borderLight }}>
                   <span>👤 負責:{r.owner}</span>
@@ -8025,10 +8363,25 @@ function EmployeeLoad({ reports, handoffs, decisions, employees = SEED_EMPLOYEES
   return (
     <div style={{ padding: "24px 28px", maxWidth: 980 }}>
       <PageHeader
-        tag="EMPLOYEE LOAD"
+        tag="EMPLOYEE LOAD · WEIGHTED MODEL"
         title="員工負載分析"
-        subtitle="從週報、交接單、被提及次數綜合計算工作負載,協助管理層掌握資源分配"
+        subtitle="加權模型：時間衰減 × 案件複雜度 + 跨部門協作中心性 + 待處理懲罰 · 含分位數比較"
       />
+
+      {/* 演算法說明 (給管理層看的透明度) */}
+      <Card style={{ padding: 14, marginBottom: 16, background: C.accentLight, border: "1px solid " + C.accent + "20" }}>
+        <div style={{ fontSize: 11, color: C.accent, fontWeight: 600, letterSpacing: "0.1em", marginBottom: 6 }}>
+          ALGORITHM · 計算公式
+        </div>
+        <div style={{ fontSize: 11, color: C.textMid, lineHeight: 1.8, fontFamily: "monospace" }}>
+          W<sub>total</sub> = Σ (decay<sub>t</sub> × complexity<sub>c</sub>) + blocker × 2.5 + mentions × 1.5 + handoff × 1.5  (pending × 4)
+        </div>
+        <div style={{ fontSize: 11, color: C.textMid, lineHeight: 1.7, marginTop: 6 }}>
+          時間衰減 (decay)：本週 1.0 ／ 上週 0.7 ／ 2 週前 0.4 ／ 3 週前 0.15 ／ 更早 0
+          <br/>複雜度 (complexity)：跨部門案件 ×1.5 ／ 卡點相關 ×2.0 ／ 一般 ×1.0
+          <br/>分位數：個人 loadScore 相對全公司分布，≥90% 列為過載
+        </div>
+      </Card>
 
       {/* 統計卡 */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
