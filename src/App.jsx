@@ -3696,6 +3696,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
   const [showAllTurnover, setShowAllTurnover] = useState(false);
   // 預設管理層使用「高階摘要」模式 (只看 5 個關鍵指標)，可切「詳細視圖」
   const [viewMode, setViewMode] = useState("executive"); // "executive" | "detail"
+  const [oneOnOneEmployee, setOneOnOneEmployee] = useState(null);
   const isAdmin = userProfile?.role === "admin";
   const isManager = userProfile?.role === "manager";
   const isMember = userProfile?.role === "member" || (!isAdmin && !isManager);
@@ -3836,110 +3837,457 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
         }
       />
 
-      {/* === 高階摘要模式 (Executive Summary) === */}
-      {isAdmin && viewMode === "executive" && (
-        <Card style={{ padding: "24px 28px", marginBottom: 22, background: "white" }}>
-          <div style={{ fontSize: 10, color: C.highlight, letterSpacing: "0.25em", fontWeight: 600, marginBottom: 14 }}>
-            EXECUTIVE BRIEF · 一頁看完
-          </div>
+      {/* === 高階摘要模式：3 區塊 + 1 亮點 === */}
+      {isAdmin && viewMode === "executive" && (() => {
+        // ========================================================
+        // useManagerInsights — 統一計算紅 / 黃 / 趨勢 / 亮點資料
+        // ========================================================
+        const loads = analyzeEmployeeLoad(reports, handoffs, employees);
+        const network = analyzeDeptNetwork(reports, departments, handoffs);
 
-          {/* 5 個關鍵指標 (BB) */}
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(5, 1fr)",
-            gap: 0,
-            marginBottom: 22,
-            borderTop: "1px solid " + C.borderLight,
-            borderBottom: "1px solid " + C.borderLight,
-          }}>
-            {(() => {
-              const overdue = decisions.filter((d) => d.status === "逾期").length;
-              const critical = activeBlockers.filter((b) => b.analysis?.level === "critical").length;
-              const unsignedCount = unsigned.length;
-              const submittedThisWeek = reports.filter(r => r.week === CURRENT_WEEK_LABEL).length;
-              const careCount = careAlerts.length;
-              return [
-                { label: "逾期決策", value: overdue, tone: overdue > 0 ? "danger" : "neutral", action: () => onNav("decisions") },
-                { label: "極高風險卡點", value: critical, tone: critical > 0 ? "danger" : "neutral", action: () => onNav("analytics") },
-                { label: "未閉環交接", value: unsignedCount, tone: unsignedCount > 2 ? "warn" : "neutral", action: () => onNav("handoff") },
-                { label: "本週週報", value: `${submittedThisWeek}/3`, tone: submittedThisWeek < 3 ? "warn" : "success", action: () => onNav("report") },
-                { label: "員工關懷提醒", value: careCount, tone: careCount > 2 ? "warn" : "neutral", action: () => onNav("employees") },
-              ].map((m, i) => (
-                <div
-                  key={m.label}
-                  onClick={m.action}
-                  style={{
-                    padding: "20px 16px",
-                    borderRight: i < 4 ? "1px solid " + C.borderLight : "none",
-                    cursor: "pointer",
-                    textAlign: "center",
-                    transition: "background 0.12s",
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = C.bg}
-                  onMouseLeave={(e) => e.currentTarget.style.background = "white"}
-                >
-                  <div style={{ fontSize: 10, color: C.textLight, marginBottom: 8, letterSpacing: "0.1em" }}>
-                    {m.label.toUpperCase()}
+        // 紅燈：逾期決策 + P95 卡點 + 逾 24h 未簽收交接
+        const redItems = [
+          ...decisions.filter((d) => d.status === "逾期").slice(0, 5).map((d) => {
+            const daysOver = Math.max(1, Math.round((NOW - new Date(d.dueDate || NOW)) / 86400000));
+            return {
+              type: "decision", id: "rd-" + d.id, raw: d,
+              name: d.title, reason: `指派 ${d.assignedDept}`, duration: `逾期 ${daysOver} 天`,
+              tone: "danger", icon: "⚖",
+              onClick: () => setViewDecision(d),
+            };
+          }),
+          ...activeBlockers.filter((b) => b.analysis?.percentile >= 95).slice(0, 5).map((b) => ({
+            type: "blocker", id: "rb-" + (b.blocker?.id || b.id || Math.random()), raw: b,
+            name: b.blocker?.title || b.originalText || "未命名卡點",
+            reason: `${b.categoryInfo?.label || "卡點"} · 已卡 ${b.analysis?.currentDays} 天`,
+            duration: `P${b.analysis?.percentile} 風險`,
+            tone: "danger", icon: "▲",
+            onClick: () => onNav("analytics"),
+          })),
+          ...handoffs.filter((h) => h.status === "待簽收" && (h.hoursOverdue || 0) >= 24).slice(0, 5).map((h) => ({
+            type: "handoff", id: "rh-" + h.id, raw: h,
+            name: h.title, reason: `${h.from} → ${h.to}`,
+            duration: `逾期 ${h.hoursOverdue} 小時`,
+            tone: "danger", icon: "↻",
+            onClick: () => onNav("handoff"),
+          })),
+        ].slice(0, 8); // 最多保留 8 筆，UI 預設顯示 3
+        const redCount = redItems.length;
+
+        // 黃燈：過載員工 (P≥90) + 趨勢異常部門 + P90-P95 卡點
+        const yellowItems = [
+          ...loads.filter((l) => (l.percentile || 0) >= 90 && l.level === "overload").slice(0, 4).map((emp) => ({
+            type: "employee", id: "ye-" + emp.name, raw: emp,
+            name: emp.name, reason: `${emp.dept} · 負載 ${emp.loadScore.toFixed(1)}`,
+            duration: `P${emp.percentile} 過載`,
+            tone: "warn", icon: "👤",
+            onClick: () => setOneOnOneEmployee(emp),
+          })),
+          ...(reportAnomalies || []).slice(0, 3).map((a, i) => ({
+            type: "anomaly", id: "ya-" + i, raw: a,
+            name: `${a.dept || ""} ${a.typeLabel || "活動異常"}`,
+            reason: a.description || "z-score 異常",
+            duration: `z=${a.z || "?"}`,
+            tone: "warn", icon: "📈",
+            onClick: () => setViewAnomaly(a),
+          })),
+          ...activeBlockers.filter((b) => (b.analysis?.percentile || 0) >= 90 && (b.analysis?.percentile || 0) < 95).slice(0, 3).map((b) => ({
+            type: "blocker", id: "yb-" + (b.blocker?.id || Math.random()), raw: b,
+            name: b.blocker?.title || b.originalText || "未命名卡點",
+            reason: `${b.categoryInfo?.label || ""} · 已卡 ${b.analysis?.currentDays} 天`,
+            duration: `P${b.analysis?.percentile}`,
+            tone: "warn", icon: "▲",
+            onClick: () => onNav("analytics"),
+          })),
+        ].slice(0, 5);
+
+        // 趨勢箭頭：本週 vs 上週的 3 個指標
+        const lastWeekStart = new Date(NOW); lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+        const twoWeekAgoStart = new Date(NOW); twoWeekAgoStart.setDate(twoWeekAgoStart.getDate() - 14);
+        const activeNow = activeBlockers.length;
+        const blockersLastWeek = (allBlockers || []).filter((b) => {
+          const c = b.createdAt ? new Date(b.createdAt) : null;
+          return c && c >= twoWeekAgoStart && c < lastWeekStart && b.status !== "resolved";
+        }).length;
+        const avgLoadNow = loads.length ? loads.reduce((s, l) => s + l.loadScore, 0) / loads.length : 0;
+        // 上週負載：用 activityHistory 估算（取上週各部門 cases 和）
+        const allWeeksAct = [...new Set(activityHistory.map((a) => a.week))].sort((a, b) => b - a);
+        const lastWeekAct = activityHistory.filter((a) => a.week === allWeeksAct[1]);
+        const avgLoadLastWeek = lastWeekAct.length ? lastWeekAct.reduce((s, a) => s + (a.cases || 0) + (a.blockers || 0) + (a.helpRequests || 0), 0) / Math.max(1, employees.length) : 0;
+        const overdueNow = decisions.filter((d) => d.status === "逾期").length;
+        // 上週逾期：用 decidedAt 推算 (假設上週已逾期的數量大致相同)
+        const overdueLastWeek = decisions.filter((d) => {
+          if (d.status === "已完成") return false;
+          if (!d.dueDate) return false;
+          const due = new Date(d.dueDate);
+          return due < lastWeekStart;
+        }).length;
+
+        const calcTrend = (now, prev) => {
+          if (prev === 0 && now === 0) return { pct: 0, dir: "→" };
+          if (prev === 0) return { pct: 100, dir: "↑" };
+          const pct = Math.round(((now - prev) / prev) * 100);
+          return { pct, dir: pct > 5 ? "↑" : pct < -5 ? "↓" : "→" };
+        };
+        const trendArrows = [
+          {
+            label: "活躍卡點數", now: activeNow, prev: blockersLastWeek,
+            ...calcTrend(activeNow, blockersLastWeek),
+            higherIsBad: true,
+          },
+          {
+            label: "平均負載分數", now: avgLoadNow.toFixed(1), prev: avgLoadLastWeek.toFixed(1),
+            ...calcTrend(avgLoadNow, avgLoadLastWeek),
+            higherIsBad: true,
+          },
+          {
+            label: "逾期決策數", now: overdueNow, prev: overdueLastWeek,
+            ...calcTrend(overdueNow, overdueLastWeek),
+            higherIsBad: true,
+          },
+        ];
+
+        // 照妖鏡：3 個軟性危機
+        const insights = [];
+        // (1) 結構性過載：高中心性員工
+        const highCentrality = loads
+          .filter((l) => l.mentionsWeighted > 3 && l.timeWeightedCases > 5)
+          .sort((a, b) => (b.mentionsWeighted + b.timeWeightedCases) - (a.mentionsWeighted + a.timeWeightedCases))
+          .slice(0, 1);
+        if (highCentrality.length > 0) {
+          const e = highCentrality[0];
+          insights.push({
+            type: "structural-overload",
+            tag: "結構性過載",
+            tagColor: C.danger,
+            problem: `${e.name} 同時是「被高度依賴」與「自己工作高量」的雙重核心節點`,
+            data: `被提及 ${e.mentions} 次 · 自己案件加權 ${e.timeWeightedCases.toFixed(1)} · P${e.percentile} 分位`,
+            action: "建議：盡快指派 backup 或重新分流，避免單點失敗",
+            onClick: () => setOneOnOneEmployee(e),
+          });
+        }
+        // (2) 慢性卡點：在 critical 區間
+        const chronicBlockers = activeBlockers.filter((b) => (b.analysis?.percentile || 0) >= 90);
+        if (chronicBlockers.length > 0) {
+          const cb = chronicBlockers[0];
+          insights.push({
+            type: "chronic-blocker",
+            tag: "慢性卡點",
+            tagColor: C.warn,
+            problem: `${cb.categoryInfo?.label} 類卡點已超過歷史 P${cb.analysis?.percentile} 的解決時間`,
+            data: `「${cb.blocker?.title || cb.originalText}」已卡 ${cb.analysis?.currentDays} 天 · 同類歷史中位數 ${(cb.analysis?.p50 || cb.analysis?.median || 0).toFixed?.(1) || "-"} 天`,
+            action: "建議：今天就召開協調會，跳過正常 SLA",
+            onClick: () => onNav("analytics"),
+          });
+        }
+        // (3) 部門溝通失衡
+        let imbalance = null;
+        network.depts.forEach((from) => {
+          network.depts.forEach((to) => {
+            if (from === to) return;
+            const out = network.matrix[from]?.[to] || 0;
+            const back = network.matrix[to]?.[from] || 0;
+            if (out >= 5 && back === 0) {
+              if (!imbalance || out > imbalance.out) imbalance = { from, to, out, back };
+            }
+          });
+        });
+        if (imbalance) {
+          insights.push({
+            type: "comm-imbalance",
+            tag: "溝通失衡",
+            tagColor: C.purple,
+            problem: `${imbalance.from} 持續單向依賴 ${imbalance.to}，但沒有反向協作`,
+            data: `${imbalance.from} → ${imbalance.to}：${imbalance.out} 次 · 反向：${imbalance.back} 次`,
+            action: "建議：1-on-1 詢問 ${to} 是否覺得被打擾、確認是否需要建立 SOP",
+            onClick: () => onNav("orgnetwork"),
+          });
+        }
+
+        // ========================================================
+        // UI 渲染
+        // ========================================================
+        return (
+          <div style={{ marginBottom: 24 }}>
+            {/* 3 區塊主排版：上面三欄 */}
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: "1.25fr 1.25fr 1fr",
+              gap: 16,
+              marginBottom: 16,
+            }}>
+              {/* ===== 紅燈區 ===== */}
+              <Card style={{ padding: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                <div style={{
+                  padding: "14px 20px 12px",
+                  borderTop: "3px solid " + C.danger,
+                  borderBottom: "1px solid " + C.borderLight,
+                  display: "flex", alignItems: "baseline", justifyContent: "space-between",
+                }}>
+                  <div>
+                    <div style={{ fontSize: 10, color: C.danger, letterSpacing: "0.2em", fontWeight: 600 }}>
+                      CRITICAL · 紅燈
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: C.text, marginTop: 4, fontFamily: '"Noto Serif TC", serif' }}>
+                      必須立即處理
+                    </div>
                   </div>
                   <div style={{
-                    fontSize: 32,
-                    fontWeight: 600,
-                    color: m.tone === "danger" ? C.danger : m.tone === "warn" ? C.warn : m.tone === "success" ? C.success : C.text,
-                    fontFamily: '"Noto Serif TC", serif',
-                    lineHeight: 1,
-                  }}>{m.value}</div>
-                  <div style={{ fontSize: 11, color: C.textMid, marginTop: 6 }}>{m.label}</div>
+                    fontSize: 26, fontWeight: 600, color: C.danger,
+                    fontFamily: '"Noto Serif TC", serif', lineHeight: 1,
+                  }}>{redCount}</div>
                 </div>
-              ));
-            })()}
-          </div>
+                <div style={{ padding: "10px 14px", flex: 1, minHeight: 130 }}>
+                  {redItems.length === 0 ? (
+                    <div style={{ padding: "30px 0", textAlign: "center", fontSize: 12, color: C.textLight }}>
+                      ✓ 目前無立即處理事項
+                    </div>
+                  ) : (
+                    <>
+                      {redItems.slice(0, showAllActions ? redItems.length : 3).map((item) => (
+                        <div
+                          key={item.id}
+                          onClick={item.onClick}
+                          style={{
+                            padding: "9px 4px", borderBottom: "1px solid " + C.borderLight,
+                            cursor: "pointer", transition: "background 0.12s",
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = C.bg}
+                          onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                            <span style={{ color: C.danger, fontSize: 11, fontWeight: 700 }}>{item.icon}</span>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {item.name}
+                            </span>
+                            <span style={{ fontSize: 10, color: C.danger, fontWeight: 600, letterSpacing: "0.05em" }}>
+                              {item.duration}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 11, color: C.textMid, marginLeft: 19 }}>
+                            {item.reason}
+                          </div>
+                        </div>
+                      ))}
+                      {redItems.length > 3 && (
+                        <div
+                          onClick={() => setShowAllActions(!showAllActions)}
+                          style={{
+                            padding: "8px 4px", textAlign: "center", cursor: "pointer",
+                            fontSize: 11, color: C.danger, fontWeight: 600, letterSpacing: "0.05em",
+                          }}
+                        >
+                          {showAllActions ? "▲ 收合" : `▼ 還有 ${redItems.length - 3} 筆`}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </Card>
 
-          {/* 必須關注的事項 (最多 3 條) */}
-          {actionItems.length > 0 && (
-            <div>
-              <div style={{ fontSize: 11, color: C.textMid, letterSpacing: "0.1em", fontWeight: 600, marginBottom: 10 }}>
-                ⚠ 須親自處理（系統推薦 Top 3）
-              </div>
-              {actionItems.slice(0, 3).map((item) => (
-                <div
-                  key={item.id}
-                  onClick={() => {
-                    if (item.decision) setViewDecision(item.decision);
-                    else if (item.type === "overload") onNav("employees");
-                    else if (item.type === "critical-blocker") onNav("analytics");
-                  }}
-                  style={{
-                    padding: "10px 14px",
-                    background: C.bg,
-                    borderLeft: "3px solid " + C.highlight,
-                    marginBottom: 6,
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                  }}
-                >
-                  <span style={{ fontSize: 14 }}>{item.icon}</span>
-                  <div style={{ flex: 1, fontSize: 13, color: C.text, fontWeight: 500 }}>
-                    {item.title}
+              {/* ===== 黃燈區 ===== */}
+              <Card style={{ padding: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                <div style={{
+                  padding: "14px 20px 12px",
+                  borderTop: "3px solid " + C.warn,
+                  borderBottom: "1px solid " + C.borderLight,
+                  display: "flex", alignItems: "baseline", justifyContent: "space-between",
+                }}>
+                  <div>
+                    <div style={{ fontSize: 10, color: C.warn, letterSpacing: "0.2em", fontWeight: 600 }}>
+                      ATTENTION · 黃燈
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: C.text, marginTop: 4, fontFamily: '"Noto Serif TC", serif' }}>
+                      本週關注
+                    </div>
                   </div>
-                  <ChevronRight size={14} color={C.textLight} />
+                  <div style={{
+                    fontSize: 26, fontWeight: 600, color: C.warn,
+                    fontFamily: '"Noto Serif TC", serif', lineHeight: 1,
+                  }}>{yellowItems.length}</div>
                 </div>
-              ))}
+                <div style={{ padding: "10px 14px", flex: 1, minHeight: 130 }}>
+                  {yellowItems.length === 0 ? (
+                    <div style={{ padding: "30px 0", textAlign: "center", fontSize: 12, color: C.textLight }}>
+                      ✓ 本週無關注項目
+                    </div>
+                  ) : (
+                    yellowItems.map((item) => (
+                      <div
+                        key={item.id}
+                        onClick={item.onClick}
+                        style={{
+                          padding: "9px 4px", borderBottom: "1px solid " + C.borderLight,
+                          cursor: "pointer", transition: "background 0.12s",
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = C.bg}
+                        onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                      >
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                          <span style={{ color: C.warn, fontSize: 11, fontWeight: 700 }}>{item.icon}</span>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {item.name}
+                          </span>
+                          <span style={{ fontSize: 10, color: C.warn, fontWeight: 600, letterSpacing: "0.05em" }}>
+                            {item.duration}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 11, color: C.textMid, marginLeft: 19 }}>
+                          {item.reason}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </Card>
+
+              {/* ===== 趨勢箭頭 ===== */}
+              <Card style={{ padding: 0, overflow: "hidden" }}>
+                <div style={{
+                  padding: "14px 20px 12px",
+                  borderTop: "3px solid " + C.accent,
+                  borderBottom: "1px solid " + C.borderLight,
+                }}>
+                  <div style={{ fontSize: 10, color: C.accent, letterSpacing: "0.2em", fontWeight: 600 }}>
+                    TREND · 本週 vs 上週
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: C.text, marginTop: 4, fontFamily: '"Noto Serif TC", serif' }}>
+                    關鍵指標趨勢
+                  </div>
+                </div>
+                <div style={{ padding: "8px 0" }}>
+                  {trendArrows.map((t, i) => {
+                    const isBad = t.higherIsBad ? t.dir === "↑" : t.dir === "↓";
+                    const dirColor = t.dir === "→" ? C.textLight : isBad ? C.danger : C.success;
+                    return (
+                      <div key={i} style={{
+                        padding: "10px 20px",
+                        borderBottom: i < trendArrows.length - 1 ? "1px solid " + C.borderLight : "none",
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                      }}>
+                        <div>
+                          <div style={{ fontSize: 11, color: C.textMid, marginBottom: 2 }}>
+                            {t.label}
+                          </div>
+                          <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                            <span style={{ fontSize: 20, fontWeight: 600, color: C.text, fontFamily: '"Noto Serif TC", serif' }}>{t.now}</span>
+                            <span style={{ fontSize: 10, color: C.textLight }}>← {t.prev}</span>
+                          </div>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ fontSize: 22, fontWeight: 600, color: dirColor, lineHeight: 1 }}>
+                            {t.dir}
+                          </div>
+                          <div style={{ fontSize: 10, color: dirColor, fontWeight: 600, marginTop: 3 }}>
+                            {t.pct > 0 ? "+" : ""}{t.pct}%
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
             </div>
-          )}
 
-          <div style={{
-            marginTop: 18, paddingTop: 14, borderTop: "1px solid " + C.borderLight,
-            fontSize: 11, color: C.textLight, textAlign: "center", letterSpacing: "0.04em",
-          }}>
-            需要更多資訊？切換到「詳細視圖」查看完整分析
+            {/* ===== 照妖鏡 · 系統主動發現 ===== */}
+            {insights.length > 0 && (
+              <Card style={{ padding: 0, overflow: "hidden" }}>
+                <div style={{
+                  padding: "16px 24px 14px",
+                  borderTop: "3px solid " + C.purple,
+                  borderBottom: "1px solid " + C.borderLight,
+                  background: "white",
+                  display: "flex", alignItems: "baseline", justifyContent: "space-between",
+                }}>
+                  <div>
+                    <div style={{ fontSize: 10, color: C.purple, letterSpacing: "0.25em", fontWeight: 600 }}>
+                      MIRROR · 照妖鏡
+                    </div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: C.text, marginTop: 4, fontFamily: '"Noto Serif TC", serif' }}>
+                      系統主動發現的軟性危機
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 11, color: C.textLight, letterSpacing: "0.02em" }}>
+                    一般 BB 看不到的「軟訊號」
+                  </div>
+                </div>
+                <div style={{
+                  display: "grid",
+                  gridTemplateColumns: `repeat(${insights.length}, 1fr)`,
+                  gap: 0,
+                }}>
+                  {insights.map((ins, i) => (
+                    <div
+                      key={ins.type}
+                      onClick={ins.onClick}
+                      style={{
+                        padding: "18px 22px",
+                        borderRight: i < insights.length - 1 ? "1px solid " + C.borderLight : "none",
+                        cursor: "pointer",
+                        transition: "background 0.15s",
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = C.bg}
+                      onMouseLeave={(e) => e.currentTarget.style.background = "white"}
+                    >
+                      <div style={{
+                        display: "inline-block",
+                        padding: "2px 10px",
+                        background: ins.tagColor + "18",
+                        color: ins.tagColor,
+                        fontSize: 10,
+                        fontWeight: 600,
+                        letterSpacing: "0.1em",
+                        marginBottom: 12,
+                      }}>
+                        {ins.tag}
+                      </div>
+                      <div style={{
+                        fontSize: 14,
+                        fontWeight: 600,
+                        color: C.text,
+                        lineHeight: 1.5,
+                        marginBottom: 10,
+                        fontFamily: '"Noto Serif TC", serif',
+                      }}>
+                        {ins.problem}
+                      </div>
+                      <div style={{
+                        fontSize: 11,
+                        color: C.textMid,
+                        lineHeight: 1.7,
+                        marginBottom: 10,
+                        fontFamily: "monospace",
+                      }}>
+                        {ins.data}
+                      </div>
+                      <div style={{
+                        fontSize: 11,
+                        color: ins.tagColor,
+                        lineHeight: 1.7,
+                        paddingTop: 8,
+                        borderTop: "1px dashed " + C.borderLight,
+                      }}>
+                        ▸ {ins.action}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
+
+            {/* 切換到詳細視圖提示 */}
+            <div style={{
+              marginTop: 16, padding: "10px 0",
+              fontSize: 11, color: C.textLight, textAlign: "center", letterSpacing: "0.05em",
+            }}>
+              想看完整圖表與分析？點右上「詳細視圖」切換
+            </div>
           </div>
-        </Card>
-      )}
+        );
+      })()}
 
-      {/* === 高階摘要模式 · 視覺化圖表 === */}
-      {isAdmin && viewMode === "executive" && (
+      {/* === 視覺化圖表 (移到詳細視圖中) === */}
+      {isAdmin && viewMode === "detail" && (
         <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16, marginBottom: 22 }}>
           {/* 圖 1：近 12 週活動趨勢 (多線堆疊面積圖) */}
           <Card style={{ padding: "20px 24px" }}>
@@ -5024,6 +5372,90 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
 
       </>}
       {/* 詳細視圖 fragment 結束 */}
+
+      {/* 1-on-1 準備卡 Modal (黃燈員工點擊) */}
+      <Modal
+        open={!!oneOnOneEmployee}
+        onClose={() => setOneOnOneEmployee(null)}
+        title={oneOnOneEmployee ? `${oneOnOneEmployee.name} · 1-on-1 準備卡` : ""}
+        subtitle={oneOnOneEmployee && `${oneOnOneEmployee.dept} · 援引 Andy Grove《High Output Management》`}
+        maxWidth={640}
+      >
+        {oneOnOneEmployee && (() => {
+          const e = oneOnOneEmployee;
+          const card = generateOneOnOneCard(e, reports, handoffs, decisions, employees);
+          return (
+            <div>
+              {/* 負載概況 */}
+              <div style={{
+                display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8, marginBottom: 16,
+              }}>
+                {[
+                  { label: "負載分數", value: e.loadScore.toFixed(1), color: C.danger },
+                  { label: "分位數", value: `P${e.percentile}`, color: C.warn },
+                  { label: "案件加權", value: e.timeWeightedCases?.toFixed(1) || "0", color: C.accent },
+                  { label: "被提及", value: e.mentions || 0, color: C.purple },
+                ].map((m) => (
+                  <div key={m.label} style={{ padding: "10px 8px", background: C.bg, textAlign: "center" }}>
+                    <div style={{ fontSize: 10, color: C.textLight, marginBottom: 4, letterSpacing: "0.05em" }}>{m.label}</div>
+                    <div style={{ fontSize: 18, fontWeight: 600, color: m.color, fontFamily: '"Noto Serif TC", serif' }}>{m.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* 近期主要工作 */}
+              {card?.recentWork && card.recentWork.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, color: C.textMid, fontWeight: 600, marginBottom: 6, letterSpacing: "0.05em" }}>
+                    📌 近期主要工作
+                  </div>
+                  <div style={{ padding: "10px 12px", background: C.bg, fontSize: 12, color: C.text, lineHeight: 1.8 }}>
+                    {card.recentWork.map((w, i) => <div key={i}>• {w}</div>)}
+                  </div>
+                </div>
+              )}
+
+              {/* 建議談話主題 */}
+              {card?.discussionTopics && card.discussionTopics.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, color: C.textMid, fontWeight: 600, marginBottom: 6, letterSpacing: "0.05em" }}>
+                    💬 系統推薦談話主題
+                  </div>
+                  {card.discussionTopics.map((t, i) => (
+                    <div key={i} style={{
+                      padding: "10px 12px", background: C.purpleLight,
+                      marginBottom: 6, fontSize: 12, color: C.purple,
+                      borderLeft: "3px solid " + C.purple, lineHeight: 1.7,
+                    }}>
+                      {t}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* 需要協助的事項 */}
+              {card?.needHelp && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, color: C.textMid, fontWeight: 600, marginBottom: 6, letterSpacing: "0.05em" }}>
+                    🤝 他需要協助
+                  </div>
+                  <div style={{ padding: "10px 12px", background: C.warnLight, fontSize: 12, color: "#7A4F00", lineHeight: 1.7 }}>
+                    {card.needHelp}
+                  </div>
+                </div>
+              )}
+
+              <div style={{
+                marginTop: 14, paddingTop: 12, borderTop: "1px solid " + C.borderLight,
+                fontSize: 11, color: C.textLight, lineHeight: 1.7,
+              }}>
+                <strong style={{ color: C.text }}>💡 1-on-1 準備提醒：</strong>
+                先聽他的觀點，避免立刻給建議。Andy Grove 強調「員工帶動會議節奏」，主管 80% 時間應該是「問」而非「說」。
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
 
       {/* 週報詳情 Modal */}
       <Modal
