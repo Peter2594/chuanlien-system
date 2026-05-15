@@ -3905,45 +3905,83 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
 
   return (
     <div style={{ padding: "24px 28px" }}>
-      <PageHeader
-        tag={isAdmin ? "EXECUTIVE DASHBOARD" : isManager ? "MANAGER DASHBOARD" : "MY DASHBOARD"}
-        title={titleByRole}
-        subtitle={subtitleByRole}
-        action={
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            {isAdmin && (
-              <div style={{ display: "flex", border: "1px solid " + C.border, background: "white" }}>
-                {[
-                  { k: "executive", label: "高階摘要" },
-                  { k: "detail", label: "詳細視圖" },
-                ].map((opt, i) => (
-                  <button
-                    key={opt.k}
-                    onClick={() => setViewMode(opt.k)}
-                    style={{
-                      padding: "7px 14px",
-                      background: viewMode === opt.k ? C.accent : "white",
-                      color: viewMode === opt.k ? "white" : C.textMid,
-                      border: "none",
-                      borderLeft: i > 0 ? "1px solid " + C.border : "none",
-                      fontSize: 12,
-                      fontWeight: viewMode === opt.k ? 600 : 500,
-                      cursor: "pointer",
-                      fontFamily: "inherit",
-                      letterSpacing: "0.05em",
-                    }}
-                  >{opt.label}</button>
-                ))}
-              </div>
-            )}
-            {isAdmin && (
-              <Button variant="primary" icon={FileText} size="sm" onClick={() => setShowBriefing(true)}>
-                產出週會 Briefing
-              </Button>
-            )}
-          </div>
-        }
-      />
+      {/* PageHeader 只在「詳細視圖」或非管理者時顯示，高階摘要模式整個拿掉 */}
+      {(!isAdmin || viewMode === "detail") && (
+        <PageHeader
+          tag={isAdmin ? "EXECUTIVE DASHBOARD" : isManager ? "MANAGER DASHBOARD" : "MY DASHBOARD"}
+          title={titleByRole}
+          subtitle={subtitleByRole}
+          action={
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              {isAdmin && (
+                <div style={{ display: "flex", border: "1px solid " + C.border, background: "white" }}>
+                  {[
+                    { k: "executive", label: "高階摘要" },
+                    { k: "detail", label: "詳細視圖" },
+                  ].map((opt, i) => (
+                    <button
+                      key={opt.k}
+                      onClick={() => setViewMode(opt.k)}
+                      style={{
+                        padding: "7px 14px",
+                        background: viewMode === opt.k ? C.accent : "white",
+                        color: viewMode === opt.k ? "white" : C.textMid,
+                        border: "none",
+                        borderLeft: i > 0 ? "1px solid " + C.border : "none",
+                        fontSize: 12,
+                        fontWeight: viewMode === opt.k ? 600 : 500,
+                        cursor: "pointer",
+                        fontFamily: "inherit",
+                        letterSpacing: "0.05em",
+                      }}
+                    >{opt.label}</button>
+                  ))}
+                </div>
+              )}
+              {isAdmin && (
+                <Button variant="primary" icon={FileText} size="sm" onClick={() => setShowBriefing(true)}>
+                  產出週會 Briefing
+                </Button>
+              )}
+            </div>
+          }
+        />
+      )}
+
+      {/* 高階摘要模式：右上角極簡浮動切換器 (取代整個 PageHeader) */}
+      {isAdmin && viewMode === "executive" && (
+        <div style={{
+          display: "flex", justifyContent: "flex-end", gap: 16,
+          marginBottom: -8, paddingTop: 4,
+          fontSize: 12, color: C.textLight,
+        }}>
+          <button
+            onClick={() => setShowBriefing(true)}
+            style={{
+              background: "none", border: "none", color: C.textLight,
+              cursor: "pointer", fontFamily: "inherit", fontSize: 12,
+              letterSpacing: "0.02em", padding: 0,
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.color = C.text}
+            onMouseLeave={(e) => e.currentTarget.style.color = C.textLight}
+          >
+            產出週會 Briefing
+          </button>
+          <span style={{ color: C.borderLight }}>|</span>
+          <button
+            onClick={() => setViewMode("detail")}
+            style={{
+              background: "none", border: "none", color: C.textLight,
+              cursor: "pointer", fontFamily: "inherit", fontSize: 12,
+              letterSpacing: "0.02em", padding: 0,
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.color = C.text}
+            onMouseLeave={(e) => e.currentTarget.style.color = C.textLight}
+          >
+            切換到詳細視圖 →
+          </button>
+        </div>
+      )}
 
       {/* === 高階摘要模式：3 區塊 + 1 亮點 === */}
       {isAdmin && viewMode === "executive" && (() => {
@@ -4330,13 +4368,6 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
               )}
             </Card>
 
-            {/* 切換到詳細視圖提示 */}
-            <div style={{
-              textAlign: "center",
-              fontSize: 12, color: C.textLight, letterSpacing: "0.02em",
-            }}>
-              想看更詳細的資料？點右上的「詳細視圖」
-            </div>
           </div>
         );
         // 以下為被取代的舊版內容
