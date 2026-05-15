@@ -3682,6 +3682,114 @@ function generateWeeklyBriefing({ reports, handoffs, blockers, blockerHistory, d
 }
 
 // ============================================================
+// ORI · Organizational Risk Index
+// 複合風險指標：基準 = 100 (正常)。
+//
+//   ORI = 0.35·HCC + 0.25·DL + 0.25·BT + 0.15·CDC
+//
+//   HCC  Human Capital Concentration  人力集中風險（Gini + σ outliers）
+//   DL   Decision Latency             決策延遲（執行時間 + 逾期數）
+//   BT   Blocker Tail Risk            卡點尾部風險（P90+ 數量、平均分位）
+//   CDC  Cross-Dept Communication     跨部門協作健康度（非對稱 + 密度）
+//
+// 各 driver 也是 0–200 範圍，100 = 公司歷史中位數
+// ============================================================
+function computeORI({ loads, decisions, activeBlockers, network, allBlockers, departments }) {
+  const clamp = (v, lo = 0, hi = 200) => Math.max(lo, Math.min(hi, v));
+
+  // ---- 1. HCC: Human Capital Concentration ----
+  // Gini 係數 + Top-1 share + σ outliers
+  let HCC = 100;
+  if (loads.length > 0) {
+    const scores = loads.map((l) => l.loadScore).sort((a, b) => a - b);
+    const total = scores.reduce((s, v) => s + v, 0) || 1;
+    // Gini
+    let gini = 0;
+    const n = scores.length;
+    for (let i = 0; i < n; i++) gini += (2 * (i + 1) - n - 1) * scores[i];
+    gini = gini / (n * total);
+    // Top-1 share
+    const top1 = scores[scores.length - 1] / total;
+    // 過載 σ outliers
+    const mean = total / n;
+    const std = Math.sqrt(scores.reduce((s, v) => s + (v - mean) ** 2, 0) / n);
+    const outliers = std > 0 ? loads.filter((l) => (l.loadScore - mean) / std > 1.5).length : 0;
+    // 組合 (Gini 0.35 baseline → 100，每多 0.05 += 20)
+    HCC = clamp(100 + (gini - 0.35) * 400 + (top1 - 0.2) * 200 + outliers * 8);
+  }
+
+  // ---- 2. DL: Decision Latency ----
+  // 平均執行天數惡化 + 逾期數
+  let DL = 100;
+  const completed = decisions.filter((d) => d.status === "已完成" && d.completedAt && d.decidedAt);
+  if (completed.length > 0) {
+    const days = completed.map((d) => (new Date(d.completedAt) - new Date(d.decidedAt)) / 86400000);
+    const avgDays = days.reduce((s, v) => s + v, 0) / days.length;
+    // baseline 14 天 → 100，每多一天 +4
+    DL = clamp(100 + (avgDays - 14) * 4);
+  }
+  const overdue = decisions.filter((d) => d.status === "逾期").length;
+  DL = clamp(DL + overdue * 12);
+
+  // ---- 3. BT: Blocker Tail Risk ----
+  // P90+ 數量 + 平均分位
+  let BT = 100;
+  if (activeBlockers.length > 0) {
+    const percentiles = activeBlockers.map((b) => b.analysis?.percentile || 0).filter((p) => p > 0);
+    const avgP = percentiles.length ? percentiles.reduce((s, v) => s + v, 0) / percentiles.length : 50;
+    const p90count = activeBlockers.filter((b) => (b.analysis?.percentile || 0) >= 90).length;
+    const p95count = activeBlockers.filter((b) => (b.analysis?.percentile || 0) >= 95).length;
+    // baseline P50 → 100，每 +1 percentile 點 += 1.5
+    BT = clamp(100 + (avgP - 50) * 1.5 + p90count * 8 + p95count * 12);
+  }
+
+  // ---- 4. CDC: Cross-Dept Communication ----
+  // 不對稱 + 死區
+  let CDC = 100;
+  if (network.depts.length > 1) {
+    let asymCount = 0;
+    let totalLinks = 0;
+    let asymRatio = 0;
+    network.depts.forEach((a) => {
+      network.depts.forEach((b) => {
+        if (a === b) return;
+        const ab = network.matrix[a]?.[b] || 0;
+        const ba = network.matrix[b]?.[a] || 0;
+        if (ab + ba > 0) totalLinks++;
+        if (ab >= 5 && ba === 0) {
+          asymCount++;
+          asymRatio += ab;
+        }
+      });
+    });
+    // 不對稱越多越糟
+    CDC = clamp(100 + asymCount * 18 + asymRatio * 0.5);
+  }
+
+  // ---- 加權合成 ----
+  const ORI = clamp(0.35 * HCC + 0.25 * DL + 0.25 * BT + 0.15 * CDC);
+
+  return {
+    index: +ORI.toFixed(1),
+    drivers: [
+      { code: "HCC", name: "Human Capital Concentration", value: +HCC.toFixed(1), weight: 0.35 },
+      { code: "DL",  name: "Decision Latency",            value: +DL.toFixed(1),  weight: 0.25 },
+      { code: "BT",  name: "Blocker Tail Risk",           value: +BT.toFixed(1),  weight: 0.25 },
+      { code: "CDC", name: "Cross-Dept Comm Health",      value: +CDC.toFixed(1), weight: 0.15 },
+    ],
+  };
+}
+
+// 由 ORI 數值取得等級
+function oriLevel(v) {
+  if (v >= 175) return { label: "CRITICAL", color: "#8B1F26" };
+  if (v >= 150) return { label: "ELEVATED", color: "#A47432" };
+  if (v >= 125) return { label: "WATCH",    color: "#7A5C3B" };
+  if (v >= 100) return { label: "NORMAL",   color: "#5A5E68" };
+  return         { label: "BELOW BASE", color: "#2C5B43" };
+}
+
+// ============================================================
 // Dashboard 頁面
 // ============================================================
 function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, blockerHistory, decisions, employees, departments, topicHistory, activityHistory, onNav, userProfile }) {
@@ -3958,7 +4066,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
           const e = highCentrality[0];
           insights.push({
             type: "structural-overload",
-            tag: "結構性過載",
+            tag: "CONCENTRATION RISK",
             tagColor: C.danger,
             problem: `${e.name} 同時是「被高度依賴」與「自己工作高量」的雙重核心節點`,
             data: `被提及 ${e.mentions} 次 · 自己案件加權 ${e.timeWeightedCases.toFixed(1)} · P${e.percentile} 分位`,
@@ -3972,7 +4080,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
           const cb = chronicBlockers[0];
           insights.push({
             type: "chronic-blocker",
-            tag: "慢性卡點",
+            tag: "TAIL RISK",
             tagColor: C.warn,
             problem: `${cb.categoryInfo?.label} 類卡點已超過歷史 P${cb.analysis?.percentile} 的解決時間`,
             data: `「${cb.blocker?.title || cb.originalText}」已卡 ${cb.analysis?.currentDays} 天 · 同類歷史中位數 ${(cb.analysis?.p50 || cb.analysis?.median || 0).toFixed?.(1) || "-"} 天`,
@@ -3995,7 +4103,7 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
         if (imbalance) {
           insights.push({
             type: "comm-imbalance",
-            tag: "溝通失衡",
+            tag: "COUNTERPARTY ASYMMETRY",
             tagColor: C.purple,
             problem: `${imbalance.from} 持續單向依賴 ${imbalance.to}，但沒有反向協作`,
             data: `${imbalance.from} → ${imbalance.to}：${imbalance.out} 次 · 反向：${imbalance.back} 次`,
@@ -4005,180 +4113,349 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
         }
 
         // ========================================================
+        // ORI 計算
+        // ========================================================
+        const ori = computeORI({ loads, decisions, activeBlockers, network, allBlockers, departments });
+        const oriLvl = oriLevel(ori.index);
+        // WoW: 用 7 天前的快照來算 (簡化：用上週活躍卡點和決策數估算)
+        const oriPrev = (() => {
+          // 上週的簡化 ORI: 不完全準確,但提供 trend
+          const prevActive = (allBlockers || []).filter((b) => {
+            const c = b.createdAt ? new Date(b.createdAt) : null;
+            return c && (NOW - c) / 86400000 >= 7 && b.status !== "resolved";
+          });
+          const prevOverdue = decisions.filter((d) => {
+            if (!d.dueDate) return false;
+            const due = new Date(d.dueDate);
+            return due < new Date(NOW.getTime() - 7 * 86400000);
+          }).length;
+          return Math.round(100 + prevActive.length * 3 + prevOverdue * 8);
+        })();
+        const oriWoW = +(ori.index - oriPrev).toFixed(1);
+        const oriYtd = Math.min(99, Math.max(1, Math.round((ori.index / 200) * 100)));
+
+        // Morning Bullet: 3 件必須立刻決策的事 (融合紅燈)
+        const morningBullet = redItems.slice(0, 3).map((item) => {
+          let principalDecision = "Review & decide";
+          if (item.type === "decision") principalDecision = "Re-prioritize · escalate · or cancel";
+          if (item.type === "blocker")  principalDecision = "Escalate to direct intervention";
+          if (item.type === "handoff")  principalDecision = "Push for sign-off or reassign";
+          return { ...item, principalDecision };
+        });
+
+        // ========================================================
         // UI 渲染
         // ========================================================
         return (
           <div style={{ marginBottom: 24 }}>
-            {/* 3 區塊主排版：上面三欄 */}
+            {/* === ORI Header — The One Number === */}
+            <Card style={{ padding: "26px 32px", marginBottom: 16, background: "white" }}>
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 32 }}>
+                {/* 左側：ORI 主指數 */}
+                <div style={{ minWidth: 220, borderRight: "1px solid " + C.borderLight, paddingRight: 32 }}>
+                  <div style={{ fontSize: 10, color: C.textLight, letterSpacing: "0.25em", fontWeight: 600, marginBottom: 8 }}>
+                    ORGANIZATIONAL RISK INDEX
+                  </div>
+                  <div style={{
+                    fontSize: 60, fontWeight: 600, color: C.text,
+                    fontFamily: '"Inter", monospace', lineHeight: 1,
+                    fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em",
+                  }}>
+                    {ori.index.toFixed(1)}
+                  </div>
+                  <div style={{
+                    height: 1, background: oriLvl.color, opacity: 0.4,
+                    marginTop: 10, marginBottom: 10,
+                  }} />
+                  <div style={{ display: "flex", gap: 16, fontSize: 11, color: C.textMid, fontFamily: "monospace" }}>
+                    <span>
+                      <span style={{ color: C.textLight }}>WoW</span>{" "}
+                      <span style={{
+                        color: oriWoW > 5 ? C.danger : oriWoW < -5 ? C.success : C.textMid,
+                        fontWeight: 600,
+                      }}>
+                        {oriWoW > 0 ? "+" : ""}{oriWoW}
+                      </span>
+                    </span>
+                    <span>
+                      <span style={{ color: C.textLight }}>YTD</span>{" "}
+                      <span style={{ color: C.text, fontWeight: 600 }}>P{oriYtd}</span>
+                    </span>
+                    <span style={{
+                      marginLeft: "auto",
+                      padding: "1px 7px", background: oriLvl.color + "20",
+                      color: oriLvl.color, fontWeight: 700, letterSpacing: "0.1em", fontSize: 10,
+                    }}>
+                      {oriLvl.label}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 右側：4 個 driver */}
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 10, color: C.textLight, letterSpacing: "0.2em", fontWeight: 600, marginBottom: 10 }}>
+                    DRIVERS
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+                    {ori.drivers.map((d) => {
+                      const lvl = oriLevel(d.value);
+                      const barW = Math.min(100, d.value / 2); // 200 = 100%
+                      return (
+                        <div key={d.code} style={{
+                          display: "grid",
+                          gridTemplateColumns: "44px 1fr 60px 50px 36px",
+                          gap: 12,
+                          alignItems: "center",
+                          fontFamily: "monospace",
+                          fontVariantNumeric: "tabular-nums",
+                          fontSize: 11,
+                        }}>
+                          <span style={{ color: C.accent, fontWeight: 700, letterSpacing: "0.05em" }}>
+                            {d.code}
+                          </span>
+                          <span style={{ color: C.textMid, fontFamily: '"Inter", "Noto Sans TC", sans-serif', fontSize: 12 }}>
+                            {d.name}
+                          </span>
+                          <div style={{ position: "relative", height: 4, background: C.bg }}>
+                            <div style={{
+                              position: "absolute", left: 0, top: 0, bottom: 0,
+                              width: `${barW}%`, background: lvl.color,
+                            }} />
+                            <div style={{
+                              position: "absolute", left: "50%", top: -2, bottom: -2,
+                              width: 1, background: C.textLight, opacity: 0.4,
+                            }} />
+                          </div>
+                          <span style={{
+                            textAlign: "right", color: C.text, fontWeight: 600, fontSize: 12,
+                          }}>
+                            {d.value.toFixed(0)}
+                          </span>
+                          <span style={{
+                            textAlign: "right", color: C.textLight, fontSize: 10,
+                          }}>
+                            ×{d.weight}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{
+                    marginTop: 10, paddingTop: 8, borderTop: "1px dashed " + C.borderLight,
+                    fontSize: 10, color: C.textLight, fontFamily: "monospace", letterSpacing: "0.02em",
+                  }}>
+                    ORI = 0.35·HCC + 0.25·DL + 0.25·BT + 0.15·CDC · baseline 100 · normalized 0–200
+                  </div>
+                </div>
+              </div>
+            </Card>
+
+            {/* === Morning Bullet : Items Requiring Principal Decision === */}
+            <Card style={{ padding: 0, marginBottom: 16, overflow: "hidden" }}>
+              <div style={{
+                padding: "14px 24px 12px",
+                borderBottom: "1px solid " + C.borderLight,
+                display: "flex", alignItems: "baseline", justifyContent: "space-between",
+              }}>
+                <div>
+                  <div style={{ fontSize: 10, color: C.danger, letterSpacing: "0.25em", fontWeight: 600 }}>
+                    MORNING BULLET
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: C.text, marginTop: 4, fontFamily: '"Noto Serif TC", serif' }}>
+                    Items Requiring Principal Decision Today
+                  </div>
+                </div>
+                <div style={{ fontSize: 10, color: C.textLight, fontFamily: "monospace", letterSpacing: "0.05em" }}>
+                  {NOW.getFullYear()}-{String(NOW.getMonth() + 1).padStart(2, "0")}-{String(NOW.getDate()).padStart(2, "0")} · W{getISOWeek(NOW)}
+                </div>
+              </div>
+              {morningBullet.length === 0 ? (
+                <div style={{ padding: "32px 24px", textAlign: "center", color: C.textLight, fontSize: 12, fontFamily: "monospace" }}>
+                  NO ITEMS PENDING · YOU'RE CLEAR
+                </div>
+              ) : (
+                <div>
+                  {morningBullet.map((item, i) => (
+                    <div
+                      key={item.id}
+                      onClick={item.onClick}
+                      style={{
+                        padding: "14px 24px",
+                        borderBottom: i < morningBullet.length - 1 ? "1px solid " + C.borderLight : "none",
+                        cursor: "pointer", transition: "background 0.12s",
+                        display: "grid", gridTemplateColumns: "28px 1fr 110px", gap: 14, alignItems: "center",
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = C.bg}
+                      onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                    >
+                      {/* 編號 */}
+                      <div style={{
+                        fontSize: 22, fontWeight: 600, color: C.danger,
+                        fontFamily: '"Noto Serif TC", serif', lineHeight: 1,
+                      }}>
+                        {String(i + 1).padStart(2, "0")}
+                      </div>
+
+                      {/* 內容 */}
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: C.text, marginBottom: 4, fontFamily: '"Inter", "Noto Sans TC", sans-serif' }}>
+                          {item.name}
+                        </div>
+                        <div style={{ fontSize: 11, color: C.textMid, fontFamily: "monospace", letterSpacing: "0.02em" }}>
+                          {item.reason} · {item.duration}
+                        </div>
+                        <div style={{
+                          fontSize: 11, color: C.danger, marginTop: 6,
+                          paddingLeft: 12, borderLeft: "2px solid " + C.danger + "60",
+                          fontStyle: "italic",
+                        }}>
+                          Decision: {item.principalDecision}
+                        </div>
+                      </div>
+
+                      {/* 右側 metadata */}
+                      <div style={{ textAlign: "right", fontSize: 10, color: C.textLight, fontFamily: "monospace", letterSpacing: "0.05em" }}>
+                        {item.type === "decision" && "DECISION"}
+                        {item.type === "blocker" && "BLOCKER · P95+"}
+                        {item.type === "handoff" && "HANDOFF · 24h+"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+
+            {/* === 2 欄密集表 : Attention List + Key Metrics === */}
             <div style={{
               display: "grid",
-              gridTemplateColumns: "1.25fr 1.25fr 1fr",
+              gridTemplateColumns: "1.6fr 1fr",
               gap: 16,
               marginBottom: 16,
             }}>
-              {/* ===== 紅燈區 ===== */}
-              <Card style={{ padding: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+              {/* ===== ATTENTION LIST (替代黃燈) ===== */}
+              <Card style={{ padding: 0, overflow: "hidden" }}>
                 <div style={{
-                  padding: "14px 20px 12px",
-                  borderTop: "3px solid " + C.danger,
+                  padding: "12px 20px",
                   borderBottom: "1px solid " + C.borderLight,
                   display: "flex", alignItems: "baseline", justifyContent: "space-between",
                 }}>
-                  <div>
-                    <div style={{ fontSize: 10, color: C.danger, letterSpacing: "0.2em", fontWeight: 600 }}>
-                      CRITICAL · 紅燈
-                    </div>
-                    <div style={{ fontSize: 15, fontWeight: 600, color: C.text, marginTop: 4, fontFamily: '"Noto Serif TC", serif' }}>
-                      必須立即處理
-                    </div>
+                  <div style={{ fontSize: 10, color: C.warn, letterSpacing: "0.25em", fontWeight: 600 }}>
+                    ATTENTION LIST · σ ≥ 1.5
                   </div>
-                  <div style={{
-                    fontSize: 26, fontWeight: 600, color: C.danger,
-                    fontFamily: '"Noto Serif TC", serif', lineHeight: 1,
-                  }}>{redCount}</div>
+                  <div style={{ fontSize: 10, color: C.textLight, fontFamily: "monospace", letterSpacing: "0.05em" }}>
+                    {yellowItems.length} ITEMS
+                  </div>
                 </div>
-                <div style={{ padding: "10px 14px", flex: 1, minHeight: 130 }}>
-                  {redItems.length === 0 ? (
-                    <div style={{ padding: "30px 0", textAlign: "center", fontSize: 12, color: C.textLight }}>
-                      ✓ 目前無立即處理事項
-                    </div>
-                  ) : (
-                    <>
-                      {redItems.slice(0, showAllActions ? redItems.length : 3).map((item) => (
-                        <div
-                          key={item.id}
-                          onClick={item.onClick}
-                          style={{
-                            padding: "9px 4px", borderBottom: "1px solid " + C.borderLight,
-                            cursor: "pointer", transition: "background 0.12s",
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = C.bg}
-                          onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-                        >
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
-                            <span style={{ color: C.danger, fontSize: 11, fontWeight: 700 }}>{item.icon}</span>
-                            <span style={{ fontSize: 13, fontWeight: 600, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {item.name}
-                            </span>
-                            <span style={{ fontSize: 10, color: C.danger, fontWeight: 600, letterSpacing: "0.05em" }}>
-                              {item.duration}
-                            </span>
-                          </div>
-                          <div style={{ fontSize: 11, color: C.textMid, marginLeft: 19 }}>
-                            {item.reason}
-                          </div>
-                        </div>
-                      ))}
-                      {redItems.length > 3 && (
-                        <div
-                          onClick={() => setShowAllActions(!showAllActions)}
-                          style={{
-                            padding: "8px 4px", textAlign: "center", cursor: "pointer",
-                            fontSize: 11, color: C.danger, fontWeight: 600, letterSpacing: "0.05em",
-                          }}
-                        >
-                          {showAllActions ? "▲ 收合" : `▼ 還有 ${redItems.length - 3} 筆`}
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              </Card>
-
-              {/* ===== 黃燈區 ===== */}
-              <Card style={{ padding: 0, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+                {/* table header */}
                 <div style={{
-                  padding: "14px 20px 12px",
-                  borderTop: "3px solid " + C.warn,
+                  padding: "6px 20px",
                   borderBottom: "1px solid " + C.borderLight,
-                  display: "flex", alignItems: "baseline", justifyContent: "space-between",
+                  background: C.bg,
+                  display: "grid",
+                  gridTemplateColumns: "60px 1fr 110px 60px",
+                  gap: 10, fontSize: 9, color: C.textLight, letterSpacing: "0.1em", fontWeight: 600,
                 }}>
-                  <div>
-                    <div style={{ fontSize: 10, color: C.warn, letterSpacing: "0.2em", fontWeight: 600 }}>
-                      ATTENTION · 黃燈
-                    </div>
-                    <div style={{ fontSize: 15, fontWeight: 600, color: C.text, marginTop: 4, fontFamily: '"Noto Serif TC", serif' }}>
-                      本週關注
-                    </div>
-                  </div>
-                  <div style={{
-                    fontSize: 26, fontWeight: 600, color: C.warn,
-                    fontFamily: '"Noto Serif TC", serif', lineHeight: 1,
-                  }}>{yellowItems.length}</div>
+                  <span>CLASS</span>
+                  <span>ITEM</span>
+                  <span style={{ textAlign: "right" }}>METRIC</span>
+                  <span style={{ textAlign: "right" }}>FLAG</span>
                 </div>
-                <div style={{ padding: "10px 14px", flex: 1, minHeight: 130 }}>
-                  {yellowItems.length === 0 ? (
-                    <div style={{ padding: "30px 0", textAlign: "center", fontSize: 12, color: C.textLight }}>
-                      ✓ 本週無關注項目
-                    </div>
-                  ) : (
-                    yellowItems.map((item) => (
+                {yellowItems.length === 0 ? (
+                  <div style={{ padding: "26px 20px", textAlign: "center", color: C.textLight, fontSize: 12, fontFamily: "monospace" }}>
+                    NO ITEMS IN ATTENTION ZONE
+                  </div>
+                ) : (
+                  yellowItems.map((item) => {
+                    const cls = item.type === "employee" ? "PEOPLE" : item.type === "anomaly" ? "TREND" : "BLOCKER";
+                    return (
                       <div
                         key={item.id}
                         onClick={item.onClick}
                         style={{
-                          padding: "9px 4px", borderBottom: "1px solid " + C.borderLight,
+                          padding: "11px 20px",
+                          borderBottom: "1px solid " + C.borderLight,
                           cursor: "pointer", transition: "background 0.12s",
+                          display: "grid", gridTemplateColumns: "60px 1fr 110px 60px", gap: 10,
+                          alignItems: "center",
+                          fontFamily: '"Inter", "Noto Sans TC", sans-serif',
                         }}
                         onMouseEnter={(e) => e.currentTarget.style.background = C.bg}
                         onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
                       >
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
-                          <span style={{ color: C.warn, fontSize: 11, fontWeight: 700 }}>{item.icon}</span>
-                          <span style={{ fontSize: 13, fontWeight: 600, color: C.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <span style={{
+                          fontSize: 9, fontFamily: "monospace", color: C.textMid,
+                          letterSpacing: "0.08em", fontWeight: 600,
+                        }}>{cls}</span>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {item.name}
-                          </span>
-                          <span style={{ fontSize: 10, color: C.warn, fontWeight: 600, letterSpacing: "0.05em" }}>
-                            {item.duration}
-                          </span>
+                          </div>
+                          <div style={{ fontSize: 10, color: C.textMid, fontFamily: "monospace", marginTop: 2 }}>
+                            {item.reason}
+                          </div>
                         </div>
-                        <div style={{ fontSize: 11, color: C.textMid, marginLeft: 19 }}>
-                          {item.reason}
+                        <div style={{ textAlign: "right", fontSize: 11, fontWeight: 600, color: C.warn, fontFamily: "monospace", letterSpacing: "0.02em" }}>
+                          {item.duration}
+                        </div>
+                        <div style={{ textAlign: "right", fontSize: 14, color: C.warn }}>
+                          ●
                         </div>
                       </div>
-                    ))
-                  )}
-                </div>
+                    );
+                  })
+                )}
               </Card>
 
-              {/* ===== 趨勢箭頭 ===== */}
+              {/* ===== KEY METRICS · TREND TAPE ===== */}
               <Card style={{ padding: 0, overflow: "hidden" }}>
                 <div style={{
-                  padding: "14px 20px 12px",
-                  borderTop: "3px solid " + C.accent,
+                  padding: "12px 20px",
                   borderBottom: "1px solid " + C.borderLight,
+                  display: "flex", alignItems: "baseline", justifyContent: "space-between",
                 }}>
-                  <div style={{ fontSize: 10, color: C.accent, letterSpacing: "0.2em", fontWeight: 600 }}>
-                    TREND · 本週 vs 上週
-                  </div>
-                  <div style={{ fontSize: 15, fontWeight: 600, color: C.text, marginTop: 4, fontFamily: '"Noto Serif TC", serif' }}>
-                    關鍵指標趨勢
+                  <div style={{ fontSize: 10, color: C.accent, letterSpacing: "0.25em", fontWeight: 600 }}>
+                    KEY METRICS · W{getISOWeek(NOW)} vs W{getISOWeek(NOW) - 1}
                   </div>
                 </div>
-                <div style={{ padding: "8px 0" }}>
+                <div>
                   {trendArrows.map((t, i) => {
                     const isBad = t.higherIsBad ? t.dir === "↑" : t.dir === "↓";
                     const dirColor = t.dir === "→" ? C.textLight : isBad ? C.danger : C.success;
                     return (
                       <div key={i} style={{
-                        padding: "10px 20px",
+                        padding: "12px 20px",
                         borderBottom: i < trendArrows.length - 1 ? "1px solid " + C.borderLight : "none",
-                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                        display: "grid",
+                        gridTemplateColumns: "1fr 50px 50px",
+                        gap: 8, alignItems: "center",
                       }}>
                         <div>
-                          <div style={{ fontSize: 11, color: C.textMid, marginBottom: 2 }}>
-                            {t.label}
+                          <div style={{ fontSize: 10, color: C.textMid, letterSpacing: "0.05em", marginBottom: 3 }}>
+                            {t.label.toUpperCase()}
                           </div>
-                          <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-                            <span style={{ fontSize: 20, fontWeight: 600, color: C.text, fontFamily: '"Noto Serif TC", serif' }}>{t.now}</span>
-                            <span style={{ fontSize: 10, color: C.textLight }}>← {t.prev}</span>
+                          <div style={{
+                            fontSize: 22, fontWeight: 600, color: C.text,
+                            fontFamily: '"Inter", monospace',
+                            fontVariantNumeric: "tabular-nums",
+                            lineHeight: 1,
+                          }}>{t.now}</div>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ fontSize: 9, color: C.textLight, fontFamily: "monospace", letterSpacing: "0.05em" }}>
+                            PREV
+                          </div>
+                          <div style={{ fontSize: 12, color: C.textMid, fontFamily: "monospace", fontVariantNumeric: "tabular-nums" }}>
+                            {t.prev}
                           </div>
                         </div>
                         <div style={{ textAlign: "right" }}>
-                          <div style={{ fontSize: 22, fontWeight: 600, color: dirColor, lineHeight: 1 }}>
-                            {t.dir}
+                          <div style={{ fontSize: 9, color: C.textLight, fontFamily: "monospace", letterSpacing: "0.05em" }}>
+                            Δ
                           </div>
-                          <div style={{ fontSize: 10, color: dirColor, fontWeight: 600, marginTop: 3 }}>
+                          <div style={{
+                            fontSize: 12, color: dirColor, fontWeight: 600,
+                            fontFamily: "monospace", fontVariantNumeric: "tabular-nums",
+                          }}>
                             {t.pct > 0 ? "+" : ""}{t.pct}%
                           </div>
                         </div>
@@ -4201,14 +4478,14 @@ function Dashboard({ reports, handoffs, blockers: allBlockers, setBlockers, bloc
                 }}>
                   <div>
                     <div style={{ fontSize: 10, color: C.purple, letterSpacing: "0.25em", fontWeight: 600 }}>
-                      MIRROR · 照妖鏡
+                      STRUCTURAL SIGNALS
                     </div>
                     <div style={{ fontSize: 15, fontWeight: 600, color: C.text, marginTop: 4, fontFamily: '"Noto Serif TC", serif' }}>
-                      系統主動發現的軟性危機
+                      Soft Risks · 結構性風險訊號
                     </div>
                   </div>
-                  <div style={{ fontSize: 11, color: C.textLight, letterSpacing: "0.02em" }}>
-                    一般 BB 看不到的「軟訊號」
+                  <div style={{ fontSize: 10, color: C.textLight, fontFamily: "monospace", letterSpacing: "0.05em" }}>
+                    SOURCE: WEEKLY REPORTS · HANDOFFS · LOAD MODEL
                   </div>
                 </div>
                 <div style={{
